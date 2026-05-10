@@ -39,6 +39,15 @@ def generate_pay_app_excel_endpoint(
         result = generate_and_store_pay_app_excel(str(pay_app_id))
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except Exception as e:
+        # Surface unexpected errors so the client sees what went wrong
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[generate-excel] unexpected error: {e}\n{tb}", flush=True)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            f"{type(e).__name__}: {e}",
+        )
     audit.log(user.id, "pay_app", str(pay_app_id), "excel_generated",
               metadata={"file_path": result["file_path"]})
     return result
@@ -53,6 +62,14 @@ def generate_pay_app_pdf_endpoint(
         result = generate_and_store_pay_app_pdf(str(pay_app_id))
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[generate-pdf] unexpected error: {e}\n{tb}", flush=True)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            f"{type(e).__name__}: {e}",
+        )
     audit.log(user.id, "pay_app", str(pay_app_id), "pdf_generated",
               metadata={"file_path": result["file_path"]})
     return result
