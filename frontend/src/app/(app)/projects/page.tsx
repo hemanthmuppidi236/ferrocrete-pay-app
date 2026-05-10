@@ -17,132 +17,129 @@ export default function ProjectsPage() {
         if (!cancelled) setProjects(data);
       } catch (e) {
         if (cancelled) return;
-        if (e instanceof ApiError) {
-          setError(`${e.status}: ${e.detail}`);
-        } else {
-          setError(String(e));
-        }
+        setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
+  const projectCount = projects?.length ?? 0;
+
   return (
-    <div>
-      <div className="flex items-end justify-between mb-8">
-        <div>
-          <h1
-            className="font-display text-5xl mb-2"
-            style={{ color: "var(--text-primary)", letterSpacing: "-0.02em" }}
-          >
-            Projects
-          </h1>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Active projects across Ferrocrete Builders.
-          </p>
+    <>
+      <div className="page-header">
+        <div className="page-title-block">
+          <div className="page-eyebrow">FERROCRETE BUILDERS, INC.</div>
+          <h1 className="page-title">Pay Applications</h1>
+          <div className="page-meta">
+            {projects === null
+              ? "Loading…"
+              : (
+                <>
+                  <strong>{projectCount}</strong>{" "}
+                  active {projectCount === 1 ? "project" : "projects"}
+                </>
+              )}
+          </div>
         </div>
-        <Link href="/projects/new" className="btn btn-accent">
-          + New Project
-        </Link>
+        <div className="page-actions">
+          <Link href="/projects/import" className="btn btn-ghost">
+            Import
+          </Link>
+          <Link href="/projects/new" className="btn btn-accent">
+            + New Project
+          </Link>
+        </div>
       </div>
 
-      {error && (
-        <div
-          className="glass p-6 mb-6"
-          style={{
-            borderColor: "rgba(213,59,52,0.30)",
-            background: "rgba(213,59,52,0.06)",
-          }}
-        >
+      <div className="page-content">
+        {error && (
           <div
-            className="font-mono text-xs uppercase mb-1"
-            style={{ color: "var(--ferrocrete-red)" }}
+            className="glass"
+            style={{
+              padding: 20,
+              borderColor: "rgba(213,59,52,0.30)",
+              background: "rgba(213,59,52,0.06)",
+            }}
           >
-            Error loading projects
+            <div
+              className="font-mono"
+              style={{
+                fontSize: 11,
+                color: "var(--ferrocrete-red)",
+                letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                marginBottom: 6,
+              }}
+            >
+              Error loading projects
+            </div>
+            <div style={{ fontSize: 14, color: "var(--text-body)" }}>
+              {error}
+            </div>
           </div>
-          <div className="text-sm" style={{ color: "var(--text-body)" }}>
-            {error}
+        )}
+
+        {projects?.length === 0 && (
+          <div className="glass empty-state">
+            <h2 className="empty-state-title">No projects yet</h2>
+            <p className="empty-state-desc">
+              Get started by creating one or importing an existing pay app.
+            </p>
+            <div className="empty-state-actions">
+              <Link href="/projects/new" className="btn btn-accent">
+                + Create Project
+              </Link>
+              <Link href="/projects/import" className="btn">
+                Import from Excel
+              </Link>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {projects === null && !error && (
-        <div className="glass p-8 text-center" style={{ color: "var(--text-muted)" }}>
-          Loading…
-        </div>
-      )}
-
-      {projects?.length === 0 && (
-        <div className="glass p-12 text-center">
-          <h2 className="font-display text-2xl mb-3" style={{ color: "var(--text-primary)" }}>
-            No projects yet
-          </h2>
-          <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
-            Get started by creating one or importing an existing pay app.
-          </p>
-          <div className="flex gap-3 justify-center">
-            <Link href="/projects/new" className="btn btn-accent">
-              + Create Project
-            </Link>
-            <Link href="/projects/import" className="btn">
-              Import from Excel
-            </Link>
+        {projects && projects.length > 0 && (
+          <div className="project-grid">
+            {projects.map((p) => (
+              <ProjectCard key={p.id} project={p} />
+            ))}
           </div>
-        </div>
-      )}
-
-      {projects && projects.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {projects.map((p) => (
-            <ProjectCard key={p.id} project={p} />
-          ))}
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </>
   );
 }
 
 function ProjectCard({ project }: { project: Project }) {
   return (
-    <Link href={`/projects/${project.id}`} className="block">
-      <div
-        className="glass p-6 transition-transform hover:scale-[1.01]"
-        style={{ transition: "all 200ms var(--glide)" }}
-      >
-        <div
-          className="font-mono text-xs uppercase mb-2"
-          style={{ color: "var(--text-faint)", letterSpacing: "0.15em" }}
-        >
-          {project.project_no}
+    <Link href={`/projects/${project.id}`} className="project-card glass">
+      <div className="project-card-header">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="project-card-num">{project.project_no}</div>
+          <div className="project-card-name">{project.name}</div>
+          {(project.address || project.gc_company) && (
+            <div className="project-card-meta">
+              {project.address}
+              {project.address && project.gc_company && " · "}
+              {project.gc_company && <>GC {project.gc_company}</>}
+            </div>
+          )}
         </div>
-        <h3
-          className="font-display text-2xl mb-3"
-          style={{ color: "var(--text-primary)", letterSpacing: "-0.01em" }}
-        >
-          {project.name}
-        </h3>
-        <div className="flex items-center justify-between">
-          <StatusPill status={project.status} />
-          <div
-            className="font-mono text-sm"
-            style={{ color: "var(--text-body)" }}
-          >
-            {formatMoney(project.contract_value)}
+        <StatusPill status={project.status} />
+      </div>
+      <div className="project-card-divider" />
+      <div className="project-card-stats">
+        <div className="project-card-stat">
+          <div className="project-card-stat-label">Contract</div>
+          <div className="project-card-stat-value">
+            {fmtMoney(project.contract_value)}
           </div>
         </div>
-        {project.gc_company && (
-          <div
-            className="text-xs mt-3 pt-3"
-            style={{
-              color: "var(--text-muted)",
-              borderTop: "1px solid var(--border)",
-            }}
-          >
-            {project.gc_company}
+        <div className="project-card-stat">
+          <div className="project-card-stat-label">Retention</div>
+          <div className="project-card-stat-value">
+            {fmtPct(project.retention_rate)}
           </div>
-        )}
+        </div>
       </div>
     </Link>
   );
@@ -162,12 +159,18 @@ function StatusPill({ status }: { status: Project["status"] }) {
   return <span className={`pill ${map[status]}`}>{label[status]}</span>;
 }
 
-function formatMoney(value: string): string {
-  const n = parseFloat(value);
-  if (isNaN(n)) return value;
+function fmtMoney(v: string | number): string {
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  if (isNaN(n)) return String(v);
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(n);
+}
+
+function fmtPct(v: string | number): string {
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  if (isNaN(n)) return String(v);
+  return `${Math.round(n * 100)}%`;
 }

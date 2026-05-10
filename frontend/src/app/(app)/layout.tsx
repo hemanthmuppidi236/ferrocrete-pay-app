@@ -1,8 +1,6 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { SignOutButton } from "@/components/sign-out-button";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { Topbar } from "@/components/topbar";
 
 export default async function AppLayout({
   children,
@@ -16,48 +14,28 @@ export default async function AppLayout({
 
   if (!user) redirect("/login");
 
+  // Derive display name + initials from auth metadata
+  const fullName =
+    (user.user_metadata?.full_name as string | undefined) ||
+    (user.user_metadata?.name as string | undefined) ||
+    (user.email ? user.email.split("@")[0] : "User");
+  const firstName = fullName.split(" ")[0] || "User";
+  const initials = fullName
+    .split(" ")
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "U";
+
   return (
     <>
-      <header className="topbar">
-        <div className="flex items-center gap-6">
-          <Link
-            href="/projects"
-            className="font-display text-2xl"
-            style={{ color: "var(--topbar-text)", letterSpacing: "-0.02em" }}
-          >
-            Ferrocrete
-          </Link>
-          <nav className="flex items-center gap-4">
-            <NavLink href="/projects">Projects</NavLink>
-            {/* Future links: <NavLink href="/tracker">Tracker</NavLink> */}
-          </nav>
-        </div>
-        <div className="flex items-center gap-4">
-          <span
-            className="font-mono text-xs"
-            style={{ color: "var(--topbar-muted)" }}
-          >
-            {user.email}
-          </span>
-          <ThemeToggle />
-          <SignOutButton />
-        </div>
-      </header>
-      <main className="flex-1 px-6 py-8 max-w-[1400px] w-full mx-auto">
-        {children}
-      </main>
-    </>
-  );
-}
-
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="text-sm font-mono uppercase tracking-wider"
-      style={{ color: "var(--topbar-text)", letterSpacing: "0.1em" }}
-    >
+      <Topbar
+        email={user.email || ""}
+        firstName={firstName}
+        initials={initials}
+      />
       {children}
-    </Link>
+    </>
   );
 }
