@@ -217,13 +217,18 @@ async def import_pay_app_excel(
 
     # Optionally create the pay app row
     if create_pay_app and app_no:
-        # Derive period from filename or period_to
+        # Derive period from filename or period_to.
+        # Look for the LAST YY-MM pattern in the filename, and ensure month is 01-12.
+        # This avoids confusion with project numbers (also formatted like 25-05).
         period = None
         if file.filename:
             import re
-            m = re.search(r"(\d{2}-\d{2})", file.filename)
-            if m:
-                period = m.group(1)
+            # Find all YY-MM patterns, take the last one where MM is a valid month
+            matches = re.findall(r"(\d{2})-(\d{2})", file.filename)
+            for yy, mm in reversed(matches):
+                if 1 <= int(mm) <= 12:
+                    period = f"{yy}-{mm}"
+                    break
         if not period and period_to:
             try:
                 from datetime import date
