@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
@@ -9,9 +9,9 @@ import type { Project, PayApp } from "@/lib/types";
 export default function NewPayAppPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id: projectId } = use(params);
+  const { id: projectId } = params;
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [existingPayApps, setExistingPayApps] = useState<PayApp[]>([]);

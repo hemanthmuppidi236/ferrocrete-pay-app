@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -14,9 +14,9 @@ import { fmtMoneyShort } from "@/lib/payAppMath";
 export default function ProjectDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = use(params);
+  const { id } = params;
   const [project, setProject] = useState<Project | null>(null);
   const [sov, setSov] = useState<SOVLine[] | null>(null);
   const [cos, setCos] = useState<ChangeOrder[] | null>(null);

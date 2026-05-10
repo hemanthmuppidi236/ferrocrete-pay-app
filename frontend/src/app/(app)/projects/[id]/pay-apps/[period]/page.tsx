@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef, use } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -30,9 +30,9 @@ import {
 export default function PayAppDraftPage({
   params,
 }: {
-  params: Promise<{ id: string; period: string }>;
+  params: { id: string; period: string };
 }) {
-  const { id: projectId, period } = use(params);
+  const { id: projectId, period } = params;
 
   const [project, setProject] = useState<Project | null>(null);
   const [payApp, setPayApp] = useState<PayAppDetail | null>(null);
