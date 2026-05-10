@@ -22,6 +22,7 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 
 from .config import settings
 from .supabase_client import get_service_client
+from .pay_app_math import calculate_pay_app_totals
 from . import storage as storage_helpers
 
 
@@ -63,6 +64,10 @@ def generate_pay_app_pdf(pay_app_id: str) -> bytes:
     sov_billings = {b["sov_line_id"]: b for b in bil_res.data if b.get("sov_line_id")}
     co_billings = {b["change_order_id"]: b for b in bil_res.data if b.get("change_order_id")}
     retention_rate = Decimal(str(project["retention_rate"]))
+
+    # Compute totals fresh from billings — don't rely on the denormalized
+    # columns on the pay_apps row, which can lag behind billings updates.
+    totals = calculate_pay_app_totals(pay_app_id)
 
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -113,17 +118,17 @@ def generate_pay_app_pdf(pay_app_id: str) -> bytes:
     story.append(t)
     story.append(Spacer(1, 0.25 * inch))
 
-    # Summary calculations
+    # Summary calculations — pulled from freshly-computed totals
     summary_rows = [
-        ["1.", "ORIGINAL CONTRACT SUM", _money(pa.get("original_contract"))],
-        ["2.", "Net change by Change Orders", _money(pa.get("approved_co_total"))],
-        ["3.", "CONTRACT SUM TO DATE (Line 1 ± 2)", _money(pa.get("revised_contract"))],
-        ["4.", "TOTAL COMPLETED & STORED TO DATE", _money(pa.get("total_completed_to_date"))],
-        ["5.", f"RETAINAGE ({_pct(retention_rate)}):", _money(pa.get("retention_held"))],
-        ["6.", "TOTAL EARNED LESS RETAINAGE (Line 4 − 5)", _money(pa.get("earned_less_retention"))],
-        ["7.", "LESS PREVIOUS CERTIFICATES FOR PAYMENT", _money(pa.get("previous_certificates"))],
-        ["8.", "CURRENT PAYMENT DUE", _money(pa.get("current_payment_due"))],
-        ["9.", "BALANCE TO FINISH, INCLUDING RETAINAGE", _money(pa.get("balance_to_finish"))],
+        ["1.", "ORIGINAL CONTRACT SUM", _money(totals["original_contract"])],
+        ["2.", "Net change by Change Orders", _money(totals["approved_co_total"])],
+        ["3.", "CONTRACT SUM TO DATE (Line 1 ± 2)", _money(totals["revised_contract"])],
+        ["4.", "TOTAL COMPLETED & STORED TO DATE", _money(totals["total_completed_to_date"])],
+        ["5.", f"RETAINAGE ({_pct(retention_rate)}):", _money(totals["retention_held"])],
+        ["6.", "TOTAL EARNED LESS RETAINAGE (Line 4 − 5)", _money(totals["earned_less_retention"])],
+        ["7.", "LESS PREVIOUS CERTIFICATES FOR PAYMENT", _money(totals["previous_certificates"])],
+        ["8.", "CURRENT PAYMENT DUE", _money(totals["current_payment_due"])],
+        ["9.", "BALANCE TO FINISH, INCLUDING RETAINAGE", _money(totals["balance_to_finish"])],
     ]
     t = Table(summary_rows, colWidths=[0.4 * inch, 5.5 * inch, 2.5 * inch])
     t.setStyle(TableStyle([
