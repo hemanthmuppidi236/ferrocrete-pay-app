@@ -2,17 +2,18 @@
 Auth: verify Supabase JWT tokens on protected routes.
 
 Frontend sends `Authorization: Bearer <access_token>` on every API call.
-This dependency validates the token and loads the user profile.
+We verify by calling Supabase Auth's get_user endpoint with the token —
+this works regardless of which signing algorithm Supabase uses (HS256,
+ES256, RS256, etc.) and remains correct if Supabase rotates keys.
 """
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
 from typing import Optional
 from pydantic import BaseModel
 
 from .config import settings
-from .supabase_client import get_service_client
+from .supabase_client import get_service_client, get_anon_client
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -30,8 +31,8 @@ def get_current_user(
 ) -> CurrentUser:
     """Validate the access token and return the current user.
 
-    Raises 401 if the token is missing, invalid, expired, or the user isn't
-    in app_users (which would mean signup didn't sync correctly).
+    Raises 401 if the token is missing/invalid/expired, or 403 if the user
+    is deactivated, or 401 if they're not in app_users (signup sync failed).
     """
     if credentials is None:
         raise HTTPException(
@@ -41,22 +42,29 @@ def get_current_user(
         )
 
     token = credentials.credentials
+
+    # Verify the token by asking Supabase Auth to identify the user.
+    # The SDK handles signature verification, expiry, and audience checks for us.
     try:
-        payload = jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
-    except JWTError as e:
+        anon = get_anon_client()
+        user_resp = anon.auth.get_user(token)
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {e}",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user_id = payload.get("sub")
-    email = payload.get("email")
+    if not user_resp or not user_resp.user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: no user returned",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    auth_user = user_resp.user
+    user_id = auth_user.id
+    email = auth_user.email
     if not user_id or not email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
