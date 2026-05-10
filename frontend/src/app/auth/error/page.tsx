@@ -7,19 +7,30 @@ export default async function AuthErrorPage({
 }) {
   const params = await searchParams;
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <div className="glass-strong w-full max-w-md p-10">
-        <h1 className="font-display text-3xl mb-4" style={{ color: "var(--text-primary)" }}>
-          Sign-in failed
-        </h1>
-        <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+    <div className="login-screen">
+      <div className="login-card glass-strong">
+        <div className="login-title">Sign-in failed</div>
+        <div className="login-subtitle">Authentication Error</div>
+
+        <p style={{ fontSize: 14, color: "var(--text-body)", marginBottom: 16 }}>
           {params.message || "Something went wrong during authentication."}
         </p>
-        <p className="text-xs mb-8" style={{ color: "var(--text-faint)" }}>
-          Common cause: signups are restricted to <span className="font-mono">@ferrocretebuilders.com</span>.
-          If you used a different account, sign out of Google and retry with the right one.
+
+        <p
+          style={{
+            fontSize: 12,
+            color: "var(--text-faint)",
+            fontFamily: "IBM Plex Mono, monospace",
+            letterSpacing: "0.4px",
+            lineHeight: 1.7,
+            marginBottom: 24,
+          }}
+        >
+          Signups are restricted to <b>@ferrocretebuilders.com</b>. If you used a
+          different account, sign out of Google and retry with the right one.
         </p>
-        <Link href="/login" className="btn btn-accent w-full">
+
+        <Link href="/login" className="btn btn-accent btn-google">
           Try again
         </Link>
       </div>

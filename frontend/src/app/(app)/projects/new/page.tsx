@@ -2,29 +2,43 @@ import Link from "next/link";
 
 export default function NewProjectPage() {
   return (
-    <div className="max-w-xl">
-      <Link
-        href="/projects"
-        className="text-sm font-mono uppercase tracking-wider mb-6 inline-block"
-        style={{ color: "var(--text-muted)", letterSpacing: "0.1em" }}
-      >
-        ← Back to projects
-      </Link>
-      <div className="glass p-10">
-        <h1
-          className="font-display text-4xl mb-3"
-          style={{ color: "var(--text-primary)" }}
-        >
-          New Project
-        </h1>
-        <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
-          Coming in Phase 1B-β. For now, use the Excel import flow to bring in
-          existing projects, or POST directly to the API at <span className="font-mono">/projects</span>.
-        </p>
-        <Link href="/projects/import" className="btn btn-accent">
-          Import from Excel instead
-        </Link>
+    <>
+      <div className="page-header">
+        <div className="page-title-block">
+          <div className="page-eyebrow">FERROCRETE BUILDERS, INC.</div>
+          <h1 className="page-title">New Project</h1>
+          <div className="page-meta">
+            Create a project from scratch
+          </div>
+        </div>
       </div>
-    </div>
+
+      <div className="page-content">
+        <div className="glass form-card">
+          <p style={{ fontSize: 15, color: "var(--text-body)", marginBottom: 12 }}>
+            Manual project creation is coming in Phase 1B-β.
+          </p>
+          <p
+            style={{
+              fontSize: 14,
+              color: "var(--text-muted)",
+              marginBottom: 24,
+              lineHeight: 1.55,
+            }}
+          >
+            For now, use the Excel import flow to bring in existing projects
+            from your current pay app files.
+          </p>
+          <div className="form-actions">
+            <Link href="/projects/import" className="btn btn-accent">
+              Import from Excel
+            </Link>
+            <Link href="/projects" className="btn btn-ghost">
+              Back to projects
+            </Link>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

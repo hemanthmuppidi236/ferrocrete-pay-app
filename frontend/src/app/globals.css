@@ -524,3 +524,126 @@ h1, h2, h3, h4, h5, h6 { color: var(--text-primary); }
   gap: 12px;
   justify-content: center;
 }
+
+/* ── Login screen ────────────────────────────────────────────── */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 44px 40px 36px;
+  text-align: center;
+}
+.login-logo {
+  width: 220px;
+  height: auto;
+  margin: 0 auto 20px;
+  display: block;
+}
+.login-title {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-weight: 500;
+  font-size: 28px;
+  color: var(--text-primary);
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+.login-subtitle {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-bottom: 30px;
+}
+.login-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 24px 0 24px;
+}
+.btn-google {
+  width: 100%;
+  padding: 13px;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.btn-google svg { width: 18px; height: 18px; }
+.login-footer {
+  margin-top: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.5px;
+  line-height: 1.7;
+}
+.login-footer b { color: var(--text-muted); font-weight: 500; }
+.login-error {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(213,59,52,0.10);
+  color: var(--ferrocrete-red);
+  border: 1px solid rgba(213,59,52,0.30);
+  font-family: 'EB Garamond', serif;
+  font-size: 14px;
+}
+
+/* Spinner used during auth */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Form layout (used in import + other forms) ──────────────── */
+.form-card {
+  max-width: 560px;
+  padding: 28px;
+}
+.form-row { margin-bottom: 18px; }
+.form-row:last-child { margin-bottom: 0; }
+.form-label {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.form-help {
+  margin-top: 6px;
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--text-faint);
+  letter-spacing: 0.3px;
+}
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  align-items: center;
+}
+.form-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--text-body);
+}
+.form-checkbox input { margin-top: 4px; }

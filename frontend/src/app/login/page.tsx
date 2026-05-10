@@ -1,32 +1,41 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   return (
     <Suspense fallback={<LoginFallback />}>
-      <LoginForm />
+      <LoginCard />
     </Suspense>
   );
 }
 
 function LoginFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <div className="glass-strong w-full max-w-md p-10 text-center">
+    <div className="login-screen">
+      <div className="login-card glass-strong">
         <div style={{ color: "var(--text-muted)" }}>Loading…</div>
       </div>
     </div>
   );
 }
 
-function LoginForm() {
+function LoginCard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logoSrc, setLogoSrc] = useState("/logo_dark.png");
   const params = useSearchParams();
   const next = params.get("next") || "/projects";
+
+  // The login screen background is light, so use the dark-on-cream logo by default.
+  // Swap to white logo if user previously set dark theme.
+  useEffect(() => {
+    const stored = (localStorage.getItem("theme") as "light" | "dark" | null) || "light";
+    setLogoSrc(stored === "dark" ? "/logo_white.png" : "/logo_dark.png");
+  }, []);
 
   async function signInWithGoogle() {
     setLoading(true);
@@ -49,66 +58,44 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <div className="glass-strong w-full max-w-md p-10">
-        <div className="text-center mb-8">
-          <div
-            className="font-display text-5xl mb-3"
-            style={{ color: "var(--text-primary)", letterSpacing: "-0.02em" }}
-          >
-            Ferrocrete
-          </div>
-          <div
-            className="font-mono text-xs uppercase tracking-widest"
-            style={{ color: "var(--text-muted)", letterSpacing: "0.2em" }}
-          >
-            Pay Application System
-          </div>
-        </div>
-
-        <div
-          className="text-sm mb-6 text-center"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Sign in with your <span className="font-mono">@ferrocretebuilders.com</span> account.
-        </div>
+    <div className="login-screen">
+      <div className="login-card glass-strong">
+        <Image
+          src={logoSrc}
+          alt="Ferrocrete Builders, Inc."
+          width={220}
+          height={42}
+          className="login-logo"
+          priority
+        />
+        <div className="login-title">Pay Applications</div>
+        <div className="login-subtitle">Sub-tier Billing System</div>
 
         <button
           onClick={signInWithGoogle}
           disabled={loading}
-          className="btn btn-accent w-full text-base"
-          style={{ padding: "12px 18px" }}
+          className="btn btn-google"
+          type="button"
         >
           {loading ? (
-            "Redirecting…"
+            <>
+              <span className="spinner" /> Authenticating…
+            </>
           ) : (
             <>
-              <GoogleIcon /> Continue with Google
+              <GoogleIcon /> Sign in with Google
             </>
           )}
         </button>
 
-        {error && (
-          <div
-            className="mt-4 p-3 rounded text-sm"
-            style={{
-              background: "rgba(213,59,52,0.10)",
-              color: "var(--ferrocrete-red)",
-              border: "1px solid rgba(213,59,52,0.30)",
-            }}
-          >
-            {error}
-          </div>
-        )}
+        {error && <div className="login-error">{error}</div>}
 
-        <div
-          className="mt-8 pt-6 text-xs text-center"
-          style={{
-            color: "var(--text-faint)",
-            borderTop: "1px solid var(--border)",
-          }}
-        >
-          Restricted to authorized Ferrocrete personnel.
+        <div className="login-divider" />
+
+        <div className="login-footer">
+          <b>Restricted access</b>
+          <br />
+          Sign in with your @ferrocretebuilders.com account.
         </div>
       </div>
     </div>
@@ -117,26 +104,22 @@ function LoginForm() {
 
 function GoogleIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+    <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-        fill="#fff"
-        opacity="0.95"
+        d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"
+        fill="#4285F4"
       />
       <path
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-        fill="#fff"
-        opacity="0.85"
+        d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.96v2.332A8.997 8.997 0 0 0 9 18z"
+        fill="#34A853"
       />
       <path
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-        fill="#fff"
-        opacity="0.75"
+        d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.96A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.96 4.042l3.004-2.332z"
+        fill="#FBBC05"
       />
       <path
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-        fill="#fff"
-        opacity="0.65"
+        d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .96 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"
+        fill="#EA4335"
       />
     </svg>
   );
