@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
-import type { Project, SOVLine, ChangeOrder } from "@/lib/types";
+import type {
+  Project,
+  SOVLine,
+  ChangeOrder,
+  PayApp,
+} from "@/lib/types";
+import { fmtMoneyShort } from "@/lib/payAppMath";
 
 export default function ProjectDetailPage({
   params,
@@ -13,27 +20,32 @@ export default function ProjectDetailPage({
   const [project, setProject] = useState<Project | null>(null);
   const [sov, setSov] = useState<SOVLine[] | null>(null);
   const [cos, setCos] = useState<ChangeOrder[] | null>(null);
+  const [payApps, setPayApps] = useState<PayApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [p, s, c] = await Promise.all([
+        const [p, s, c, pa] = await Promise.all([
           api.get<Project>(`/projects/${id}`),
           api.get<SOVLine[]>(`/projects/${id}/sov-lines`),
           api.get<ChangeOrder[]>(`/projects/${id}/change-orders`),
+          api.get<PayApp[]>(`/pay-apps?project_id=${id}`),
         ]);
         if (cancelled) return;
         setProject(p);
         setSov(s);
         setCos(c);
+        setPayApps(pa);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   if (error) {
@@ -47,16 +59,7 @@ export default function ProjectDetailPage({
             background: "rgba(213,59,52,0.06)",
           }}
         >
-          <div
-            className="font-mono"
-            style={{
-              fontSize: 11,
-              color: "var(--ferrocrete-red)",
-              letterSpacing: "1.5px",
-              textTransform: "uppercase",
-              marginBottom: 6,
-            }}
-          >
+          <div className="form-label" style={{ color: "var(--ferrocrete-red)" }}>
             Error loading project
           </div>
           <div style={{ fontSize: 14 }}>{error}</div>
@@ -68,7 +71,10 @@ export default function ProjectDetailPage({
   if (!project) {
     return (
       <div className="page-content">
-        <div className="glass" style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>
+        <div
+          className="glass"
+          style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}
+        >
           Loading…
         </div>
       </div>
@@ -76,16 +82,18 @@ export default function ProjectDetailPage({
   }
 
   const sovTotal = (sov ?? []).reduce(
-    (sum: number, l: SOVLine) => sum + parseFloat(l.scheduled_value || "0"),
+    (sum, l) => sum + parseFloat(l.scheduled_value || "0"),
     0
   );
   const coTotal = (cos ?? [])
-    .filter((c: ChangeOrder) => c.status === "approved")
-    .reduce(
-      (sum: number, c: ChangeOrder) => sum + parseFloat(c.amount || "0"),
-      0
-    );
+    .filter((c) => c.status === "approved")
+    .reduce((sum, c) => sum + parseFloat(c.amount || "0"), 0);
   const revisedContract = parseFloat(project.contract_value) + coTotal;
+
+  // Sort pay apps newest first
+  const sortedPayApps = [...(payApps ?? [])].sort((a, b) =>
+    b.period.localeCompare(a.period)
+  );
 
   return (
     <>
@@ -95,40 +103,81 @@ export default function ProjectDetailPage({
           <h1 className="page-title">{project.name}</h1>
           <div className="page-meta">
             {project.address && <>{project.address} · </>}
-            {project.gc_company && <>GC <strong>{project.gc_company}</strong> · </>}
-            Contract <strong>{fmtMoney(project.contract_value)}</strong>
-            {" · "}Retention <strong>{fmtPct(project.retention_rate)}</strong>
+            {project.gc_company && (
+              <>
+                GC <strong>{project.gc_company}</strong> ·{" "}
+              </>
+            )}
+            Contract <strong>{fmtMoneyShort(project.contract_value)}</strong>
+            {" · "}Retention{" "}
+            <strong>{Math.round(parseFloat(project.retention_rate) * 100)}%</strong>
           </div>
         </div>
       </div>
 
       <div className="page-content">
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 20,
-            marginBottom: 24,
-          }}
-        >
-          <Stat label="Original Contract" value={fmtMoney(project.contract_value)} />
-          <Stat label="Approved COs" value={fmtMoney(coTotal)} />
-          <Stat label="Revised Contract" value={fmtMoney(revisedContract)} />
+        <div className="stat-grid">
+          <Stat
+            label="Original Contract"
+            value={fmtMoneyShort(project.contract_value)}
+          />
+          <Stat label="Approved COs" value={fmtMoneyShort(coTotal)} />
+          <Stat label="Revised Contract" value={fmtMoneyShort(revisedContract)} />
         </div>
 
-        <div className="glass" style={{ padding: 28 }}>
-          <h2
-            style={{
-              fontFamily: "EB Garamond, serif",
-              fontSize: 24,
-              fontWeight: 500,
-              marginBottom: 16,
-              color: "var(--text-primary)",
-              letterSpacing: "-0.01em",
-            }}
-          >
-            Schedule of Values
-          </h2>
+        {/* Pay Apps section */}
+        <div className="section-card glass">
+          <div className="section-header">
+            <h2 className="section-title">Pay Applications</h2>
+            <Link
+              href={`/projects/${id}/pay-apps/new`}
+              className="btn btn-accent"
+            >
+              + New Period
+            </Link>
+          </div>
+
+          {payApps === null ? (
+            <div style={{ color: "var(--text-muted)" }}>Loading…</div>
+          ) : sortedPayApps.length === 0 ? (
+            <div
+              style={{
+                color: "var(--text-muted)",
+                fontSize: 14,
+                padding: "16px 0",
+              }}
+            >
+              No pay applications yet. Create one to start billing.
+            </div>
+          ) : (
+            <div className="pay-app-list">
+              {sortedPayApps.map((pa) => (
+                <Link
+                  key={pa.id}
+                  href={`/projects/${id}/pay-apps/${pa.period}`}
+                  className="pay-app-row"
+                >
+                  <div className="pay-app-row-left">
+                    <div className="pay-app-row-period">{pa.period}</div>
+                    <div className="pay-app-row-app-no">
+                      App #{pa.app_no}
+                    </div>
+                  </div>
+                  <div className="pay-app-row-right">
+                    <div className="pay-app-row-amount">
+                      {fmtMoneyShort(pa.current_payment_due)}
+                    </div>
+                    <PayAppStatusPill status={pa.status} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* SOV section */}
+        <div className="section-card glass" style={{ marginTop: 20 }}>
+          <h2 className="section-title">Schedule of Values</h2>
 
           {sov === null ? (
             <div style={{ color: "var(--text-muted)" }}>Loading…</div>
@@ -142,62 +191,32 @@ export default function ProjectDetailPage({
                 <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
                   <th style={thStyle}>#</th>
                   <th style={{ ...thStyle, textAlign: "left" }}>Description</th>
-                  <th style={{ ...thStyle, textAlign: "right" }}>Scheduled Value</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>
+                    Scheduled Value
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {sov.map((line) => (
-                  <tr key={line.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <tr
+                    key={line.id}
+                    style={{ borderBottom: "1px solid var(--border)" }}
+                  >
                     <td style={tdMono}>{line.item_no}</td>
                     <td style={tdProse}>{line.description}</td>
                     <td style={{ ...tdMono, textAlign: "right" }}>
-                      {fmtMoney(line.scheduled_value)}
+                      {fmtMoneyShort(line.scheduled_value)}
                     </td>
                   </tr>
                 ))}
                 <tr>
                   <td style={{ paddingTop: 14 }}></td>
-                  <td
-                    style={{
-                      paddingTop: 14,
-                      fontFamily: "IBM Plex Mono, monospace",
-                      fontSize: 10,
-                      letterSpacing: "1.5px",
-                      textTransform: "uppercase",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    Total
-                  </td>
-                  <td
-                    style={{
-                      paddingTop: 14,
-                      textAlign: "right",
-                      fontFamily: "IBM Plex Mono, monospace",
-                      fontSize: 16,
-                      fontWeight: 600,
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {fmtMoney(sovTotal)}
-                  </td>
+                  <td style={totalLabelStyle}>Total</td>
+                  <td style={totalValueStyle}>{fmtMoneyShort(sovTotal)}</td>
                 </tr>
               </tbody>
             </table>
           )}
-        </div>
-
-        <div
-          style={{
-            marginTop: 24,
-            textAlign: "center",
-            fontSize: 13,
-            color: "var(--text-faint)",
-            fontFamily: "IBM Plex Mono, monospace",
-            letterSpacing: "0.5px",
-          }}
-        >
-          Pay app draft, change orders, and release tracker — Phase 1B-β.
         </div>
       </div>
     </>
@@ -207,31 +226,20 @@ export default function ProjectDetailPage({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="glass" style={{ padding: 18 }}>
-      <div
-        className="font-mono"
-        style={{
-          fontSize: 10,
-          color: "var(--text-faint)",
-          letterSpacing: "1.5px",
-          textTransform: "uppercase",
-          marginBottom: 8,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontFamily: "EB Garamond, serif",
-          fontSize: 26,
-          fontWeight: 500,
-          color: "var(--text-primary)",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        {value}
-      </div>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
     </div>
   );
+}
+
+function PayAppStatusPill({ status }: { status: PayApp["status"] }) {
+  const map = {
+    draft: "pill-amber",
+    submitted: "pill-blue",
+    paid: "pill-green",
+    void: "pill-muted",
+  };
+  return <span className={`pill ${map[status]}`}>{status}</span>;
 }
 
 const thStyle: React.CSSProperties = {
@@ -255,19 +263,19 @@ const tdProse: React.CSSProperties = {
   fontSize: 15,
   color: "var(--text-body)",
 };
-
-function fmtMoney(v: string | number): string {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  if (isNaN(n)) return String(v);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function fmtPct(v: string | number): string {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  if (isNaN(n)) return String(v);
-  return `${Math.round(n * 100)}%`;
-}
+const totalLabelStyle: React.CSSProperties = {
+  paddingTop: 14,
+  fontFamily: "IBM Plex Mono, monospace",
+  fontSize: 10,
+  letterSpacing: "1.5px",
+  textTransform: "uppercase",
+  color: "var(--text-muted)",
+};
+const totalValueStyle: React.CSSProperties = {
+  paddingTop: 14,
+  textAlign: "right",
+  fontFamily: "IBM Plex Mono, monospace",
+  fontSize: 16,
+  fontWeight: 600,
+  color: "var(--text-primary)",
+};

@@ -86,6 +86,28 @@ export function Topbar({
           <span className="breadcrumb-active">Import</span>
         </>
       );
+    } else if (segments[2] === "pay-apps") {
+      // /projects/:id/pay-apps/(new|:period)
+      const projectId = segments[1];
+      const sub = segments[3];
+      crumbs = (
+        <>
+          <Link href="/projects" className="breadcrumb-link">
+            Pay Applications
+          </Link>
+          <span className="breadcrumb-sep">/</span>
+          <Link
+            href={`/projects/${projectId}`}
+            className="breadcrumb-link"
+          >
+            Project
+          </Link>
+          <span className="breadcrumb-sep">/</span>
+          <span className="breadcrumb-active">
+            {sub === "new" ? "New Period" : sub}
+          </span>
+        </>
+      );
     } else {
       crumbs = (
         <>
