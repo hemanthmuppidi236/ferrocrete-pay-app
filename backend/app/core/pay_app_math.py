@@ -44,11 +44,15 @@ def calculate_pay_app_totals(pay_app_id: str) -> dict:
 
     # Load SOV lines and CO lines
     sov_res = sb.table("sov_lines").select("*").eq("project_id", project_id).execute()
-    sov_total = sum(Decimal(str(s["scheduled_value"])) for s in sov_res.data)
+    sov_total = sum(
+        (Decimal(str(s["scheduled_value"])) for s in sov_res.data),
+        Decimal(0),
+    )
 
     co_res = sb.table("change_orders").select("*").eq("project_id", project_id).execute()
     approved_co_total = sum(
-        Decimal(str(co["amount"])) for co in co_res.data if co["status"] == "approved"
+        (Decimal(str(co["amount"])) for co in co_res.data if co["status"] == "approved"),
+        Decimal(0),
     )
 
     # Load this pay app's billings (joined to know if SOV or CO)
@@ -92,7 +96,10 @@ def calculate_pay_app_totals(pay_app_id: str) -> dict:
         .in_("status", ["submitted", "paid"])
         .execute()
     )
-    previous_certs = sum(Decimal(str(p["earned_less_retention"] or 0)) for p in prior_res.data)
+    previous_certs = sum(
+        (Decimal(str(p["earned_less_retention"] or 0)) for p in prior_res.data),
+        Decimal(0),
+    )
     previous_certs = previous_certs.quantize(Decimal("0.01"))
 
     current_pay_due = (earned_less_ret - previous_certs).quantize(Decimal("0.01"))
