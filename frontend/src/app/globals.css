@@ -1,0 +1,242 @@
+/* ═══════════════════════════════════════════════════════════════
+   FERROCRETE PAY APP — GLOBAL STYLES
+   Ported from Demo 2 v5 (CHAD design system, dark-mode-fixed)
+   ═══════════════════════════════════════════════════════════════ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Web fonts ───────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
+
+/* ── LIGHT MODE TOKENS ───────────────────────────────────────── */
+:root {
+  --topbar:          #1e1e1c;
+  --topbar-text:     #ede9e0;
+  --topbar-muted:    #9a968a;
+  --topbar-sep:      #3a3836;
+
+  --grad-1:          #f3ecdc;
+  --grad-2:          #ede2ce;
+  --grad-3:          #f5dfd5;
+  --grad-amber:      rgba(212,160,74,0.18);
+  --grad-red:        rgba(213,59,52,0.10);
+
+  --text-primary:    #14140e;
+  --text-body:       #2a2820;
+  --text-muted:      #5a5650;
+  --text-faint:      #807a72;
+  --text-placeholder:#9a948a;
+
+  --border:          rgba(170,150,110,0.35);
+  --border-strong:   rgba(170,150,110,0.55);
+  --border-hover:    rgba(170,150,110,0.7);
+
+  --accent:          #b8852a;
+  --accent-text:     #6e4f10;
+  --accent-dim:      rgba(184,133,42,.12);
+  --accent-border:   rgba(184,133,42,.35);
+
+  --ferrocrete-red:  #d53b34;
+
+  --status-green:    #3a7a56;
+  --status-amber:    #9a7020;
+  --status-red:      #b8453a;
+  --status-blue:     #3a6a9a;
+
+  --glass-bg:        rgba(254, 250, 242, 0.55);
+  --glass-bg-strong: rgba(254, 250, 242, 0.85);
+  --glass-border:    rgba(255, 250, 240, 0.7);
+  --glass-shadow:    0 8px 32px rgba(80, 60, 20, 0.10), 0 2px 6px rgba(80, 60, 20, 0.06);
+
+  --input-bg:        rgba(254, 250, 242, 0.85);
+
+  --radius-sm:       6px;
+  --radius:          10px;
+  --radius-lg:       14px;
+  --radius-pill:     24px;
+  --glide:           cubic-bezier(.25,.8,.25,1);
+  --blur:            20px;
+}
+
+/* ── DARK MODE TOKENS ────────────────────────────────────────── */
+[data-theme="dark"] {
+  --topbar:          #050505;
+  --topbar-text:     #f0ece0;
+  --topbar-muted:    #a8a08e;
+  --topbar-sep:      #2a2826;
+
+  --grad-1:          #121211;
+  --grad-2:          #1a1816;
+  --grad-3:          #1d1a16;
+  --grad-amber:      rgba(232,193,120,0.10);
+  --grad-red:        rgba(255,112,104,0.08);
+
+  --text-primary:    #f5f1e6;
+  --text-body:       #e8e2d4;
+  --text-muted:      #c9c1ad;
+  --text-faint:      #a59c89;
+  --text-placeholder:#7a7264;
+
+  --border:          rgba(220,200,160,0.18);
+  --border-strong:   rgba(220,200,160,0.32);
+  --border-hover:    rgba(220,200,160,0.50);
+
+  --accent:          #e8c178;
+  --accent-text:     #f0c878;
+  --accent-dim:      rgba(232,193,120,.18);
+  --accent-border:   rgba(232,193,120,.45);
+
+  --ferrocrete-red:  #ff7068;
+
+  --status-green:    #5fb088;
+  --status-amber:    #d4a04a;
+  --status-red:      #ff7068;
+  --status-blue:     #6a9ad4;
+
+  --glass-bg:        rgba(28, 28, 28, 0.85);
+  --glass-bg-strong: rgba(32, 32, 32, 0.92);
+  --glass-border:    rgba(220, 200, 160, 0.15);
+  --glass-shadow:    0 8px 32px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+
+  --input-bg:        rgba(40, 38, 34, 0.95);
+}
+
+/* ── Base resets ─────────────────────────────────────────────── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { min-height: 100%; }
+body {
+  font-family: 'EB Garamond', serif;
+  font-size: 17px;
+  color: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+  background: #f3ecdc;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+body[data-theme="dark"] { background: #121211; }
+
+/* ── App shell with the cream→peach gradient mesh ────────────── */
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 600px 500px at 12% 18%, var(--grad-amber), transparent 70%),
+    radial-gradient(ellipse 700px 600px at 88% 75%, var(--grad-red), transparent 70%),
+    radial-gradient(ellipse 500px 400px at 60% 50%, var(--grad-3), transparent 80%),
+    linear-gradient(135deg, var(--grad-1), var(--grad-2));
+  background-attachment: fixed;
+}
+
+/* ── Glass surfaces ──────────────────────────────────────────── */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-lg);
+}
+
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-lg);
+}
+
+/* ── Top bar (dark) ──────────────────────────────────────────── */
+.topbar {
+  background: var(--topbar);
+  color: var(--topbar-text);
+  border-bottom: 1px solid var(--topbar-sep);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* ── Typography helpers ──────────────────────────────────────── */
+.font-display { font-family: 'Playfair Display', serif; }
+.font-mono    { font-family: 'IBM Plex Mono', monospace; }
+
+h1, h2, h3, h4, h5, h6 { color: var(--text-primary); }
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-family: 'EB Garamond', serif;
+  font-size: 16px;
+  font-weight: 500;
+  border: 1px solid var(--border-strong);
+  background: var(--glass-bg-strong);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 200ms var(--glide);
+}
+.btn:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.btn-accent:hover { filter: brightness(1.05); }
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn-ghost:hover {
+  background: var(--glass-bg);
+  border-color: var(--border);
+}
+
+/* ── Inputs ──────────────────────────────────────────────────── */
+.input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text-body);
+  font-family: 'EB Garamond', serif;
+  font-size: 16px;
+  transition: border-color 200ms var(--glide);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.input::placeholder { color: var(--text-placeholder); }
+
+/* ── Status pills ────────────────────────────────────────────── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.pill-green { background: rgba(58,122,86,.15); color: var(--status-green); border: 1px solid rgba(58,122,86,.3); }
+.pill-amber { background: rgba(154,112,32,.15); color: var(--status-amber); border: 1px solid rgba(154,112,32,.3); }
+.pill-red   { background: rgba(184,69,58,.15); color: var(--status-red); border: 1px solid rgba(184,69,58,.3); }
+.pill-blue  { background: rgba(58,106,154,.15); color: var(--status-blue); border: 1px solid rgba(58,106,154,.3); }
+.pill-muted { background: var(--accent-dim); color: var(--text-muted); border: 1px solid var(--border); }
