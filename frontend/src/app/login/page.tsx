@@ -28,7 +28,7 @@ function LoginCard() {
   const [error, setError] = useState<string | null>(null);
   const [logoSrc, setLogoSrc] = useState("/logo_dark.png");
   const params = useSearchParams();
-  const next = params.get("next") || "/projects";
+  const next = params.get("next") || "/pay-apps";
 
   // The login screen background is light, so use the dark-on-cream logo by default.
   // Swap to white logo if user previously set dark theme.

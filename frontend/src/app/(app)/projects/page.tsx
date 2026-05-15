@@ -30,7 +30,7 @@ export default function ProjectsPage() {
       <div className="page-header">
         <div className="page-title-block">
           <div className="page-eyebrow">FERROCRETE BUILDERS, INC.</div>
-          <h1 className="page-title">Pay Applications</h1>
+          <h1 className="page-title">Projects</h1>
           <div className="page-meta">
             {projects === null
               ? "Loading…"

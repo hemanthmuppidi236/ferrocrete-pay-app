@@ -32,6 +32,7 @@ export interface Project {
   name: string;
   address: string | null;
   gc_company: string | null;
+  gc_address: string | null;
   gc_contact_name: string | null;
   gc_contact_email: string | null;
   gc_contact_phone: string | null;

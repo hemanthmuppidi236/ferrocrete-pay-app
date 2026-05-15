@@ -8,7 +8,7 @@
 @tailwind utilities;
 
 /* ── Web fonts ───────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@1,400;1,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 /* ── LIGHT MODE TOKENS ───────────────────────────────────────── */
 :root {
@@ -339,7 +339,7 @@ body[data-theme="dark"] { background: #121211; }
 .page-content { padding: 0 36px 60px; }
 
 /* ── Typography helpers ──────────────────────────────────────── */
-.font-display { font-family: 'Playfair Display', serif; }
+.font-display { font-family: 'EB Garamond', serif; }
 .font-mono    { font-family: 'IBM Plex Mono', monospace; }
 
 h1, h2, h3, h4, h5, h6 { color: var(--text-primary); }
@@ -546,13 +546,13 @@ h1, h2, h3, h4, h5, h6 { color: var(--text-primary); }
   display: block;
 }
 .login-title {
-  font-family: 'Playfair Display', serif;
-  font-style: italic;
+  font-family: 'EB Garamond', serif;
   font-weight: 500;
-  font-size: 28px;
+  font-size: 32px;
   color: var(--text-primary);
   margin-top: 10px;
   margin-bottom: 6px;
+  letter-spacing: -0.01em;
 }
 .login-subtitle {
   font-family: 'IBM Plex Mono', monospace;

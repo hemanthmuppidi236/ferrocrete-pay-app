@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import type {
   Project,
@@ -10,6 +11,7 @@ import type {
   PayApp,
 } from "@/lib/types";
 import { fmtMoneyShort } from "@/lib/payAppMath";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 
 export default function ProjectDetailPage({
   params,
@@ -17,11 +19,15 @@ export default function ProjectDetailPage({
   params: { id: string };
 }) {
   const { id } = params;
+  const router = useRouter();
+  const { user: currentUser } = useCurrentUser();
   const [project, setProject] = useState<Project | null>(null);
   const [sov, setSov] = useState<SOVLine[] | null>(null);
   const [cos, setCos] = useState<ChangeOrder[] | null>(null);
   const [payApps, setPayApps] = useState<PayApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +101,21 @@ export default function ProjectDetailPage({
     b.period.localeCompare(a.period)
   );
 
+  async function handleDelete() {
+    if (!project) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/projects/${project.id}`);
+      router.push("/projects");
+    } catch (e) {
+      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setDeleting(false);
+      setConfirmingDelete(false);
+    }
+  }
+
+  const isAdmin = currentUser?.role === "admin";
+
   return (
     <>
       <div className="page-header">
@@ -113,6 +134,54 @@ export default function ProjectDetailPage({
             <strong>{Math.round(parseFloat(project.retention_rate) * 100)}%</strong>
           </div>
         </div>
+        {isAdmin && (
+          <div className="page-actions">
+            {confirmingDelete ? (
+              <>
+                <span
+                  style={{
+                    fontFamily: "IBM Plex Mono, monospace",
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    color: "var(--ferrocrete-red)",
+                    textTransform: "uppercase",
+                    marginRight: 10,
+                  }}
+                >
+                  Delete this project?
+                </span>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="btn"
+                  style={{
+                    color: "#fff",
+                    background: "var(--ferrocrete-red)",
+                    borderColor: "var(--ferrocrete-red)",
+                  }}
+                >
+                  {deleting ? "Deleting…" : "Yes, delete"}
+                </button>
+                <button
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={deleting}
+                  className="btn btn-ghost"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                className="btn btn-ghost"
+                style={{ color: "var(--ferrocrete-red)" }}
+                title="Permanently archive this project (admin only)"
+              >
+                Delete project
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="page-content">

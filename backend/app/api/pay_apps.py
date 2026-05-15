@@ -2,6 +2,7 @@
 Pay Applications API.
 
   GET    /pay-apps                         all (filterable by project, status, period)
+  GET    /pay-apps/dashboard               dashboard data: pay apps + aggregate stats
   GET    /pay-apps/{id}                    one (with billings)
   POST   /pay-apps                         create new (draft)
   PATCH  /pay-apps/{id}                    update metadata
@@ -46,6 +47,191 @@ def list_pay_apps(
         q = q.eq("status", status_filter)
     res = q.order("period", desc=True).execute()
     return res.data
+
+
+# ─── Dashboard helpers ──────────────────────────────────────────────────
+
+_DASHBOARD_MAX_ROWS = 500
+_STATUS_RANK = {"draft": 0, "submitted": 1, "paid": 2, "void": 3}
+
+
+def _period_to_key(period: str) -> str:
+    """'26-04' → '2026-04' (lexicographically sortable). Assumes 21st century."""
+    if not period or len(period) != 5 or period[2] != "-":
+        return ""
+    yy, mm = period.split("-")
+    if not (yy.isdigit() and mm.isdigit()):
+        return ""
+    return f"20{yy}-{mm}"
+
+
+def _in_period_range(period: str, start: Optional[str], end: Optional[str]) -> bool:
+    """Inclusive YY-MM range check against YYYY-MM bounds."""
+    key = _period_to_key(period)
+    if not key:
+        return False
+    if start and key < start:
+        return False
+    if end and key > end:
+        return False
+    return True
+
+
+def _to_float(money_str) -> float:
+    """Decimal-as-string → float, safely."""
+    if money_str is None:
+        return 0.0
+    try:
+        return float(Decimal(str(money_str)))
+    except Exception:
+        return 0.0
+
+
+@router.get("/dashboard")
+def dashboard(
+    period_start: Optional[str] = Query(None, description="YYYY-MM, inclusive"),
+    period_end: Optional[str] = Query(None, description="YYYY-MM, inclusive"),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    project_id: Optional[UUID] = Query(None),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Dashboard data for /pay-apps page.
+
+    Returns { pay_apps: [...with project info joined], stats: {...} }.
+
+    Stats are computed at three independent scopes so the cards stay stable
+    as the user explores the table with different filters:
+      - open_drafts / submitted: company-wide (ignore all filters)
+      - billed_total: responds to period filter ONLY (ignores status/project)
+      - revised_contract_total: all active projects, fully unfiltered
+    """
+    sb = get_service_client()
+
+    try:
+        # Pull all (active project) pay apps + project info via PostgREST embed.
+        # We over-fetch by design so we can compute company-wide stats from a
+        # single query.
+        rows_result = (
+            sb.table("pay_apps")
+            .select(
+                "id, project_id, period, app_no, status, "
+                "current_payment_due, total_completed_to_date, revised_contract, "
+                "updated_at, "
+                "projects(name, project_no, gc_company, deleted_at)"
+            )
+            .limit(_DASHBOARD_MAX_ROWS)
+            .execute()
+        )
+        raw_rows = rows_result.data or []
+
+        # Flatten + filter out pay apps from soft-deleted projects
+        all_rows = []
+        for r in raw_rows:
+            proj = r.get("projects") or {}
+            if proj.get("deleted_at"):
+                continue
+            completed = _to_float(r.get("total_completed_to_date"))
+            revised = _to_float(r.get("revised_contract"))
+            pct = (completed / revised * 100.0) if revised > 0 else 0.0
+            all_rows.append({
+                "id": r.get("id"),
+                "project_id": r.get("project_id"),
+                "project_name": proj.get("name") or "Unknown project",
+                "project_no": proj.get("project_no") or "",
+                "gc_company": proj.get("gc_company") or "",
+                "period": r.get("period") or "",
+                "app_no": r.get("app_no"),
+                "status": (r.get("status") or "draft").strip().lower(),
+                # Keep Money strings on the wire; fmtMoneyShort parses them.
+                "current_payment_due": r.get("current_payment_due") or "0",
+                "percent_complete": round(pct, 1),
+                "updated_at": r.get("updated_at"),
+            })
+
+        # ─ Company-wide stats (UNFILTERED) ─
+        open_drafts = [p for p in all_rows if p["status"] == "draft"]
+        submitted_apps = [p for p in all_rows if p["status"] == "submitted"]
+
+        # ─ Period-scoped billed total ─
+        if period_start or period_end:
+            period_scoped = [p for p in all_rows if _in_period_range(p["period"], period_start, period_end)]
+        else:
+            period_scoped = all_rows
+
+        # ─ The table: apply ALL filters ─
+        filtered = period_scoped
+        if status_filter:
+            norm = status_filter.strip().lower()
+            if norm in ("draft", "submitted", "paid", "void"):
+                filtered = [p for p in filtered if p["status"] == norm]
+        if project_id:
+            pid = str(project_id)
+            filtered = [p for p in filtered if p["project_id"] == pid]
+
+        # Sort: newest period first; within period, drafts before submitted before paid
+        # before void; within status, app_no DESC; project name ASC final tiebreak.
+        # Python's sort is stable — apply keys least-significant first.
+        filtered.sort(key=lambda p: p["project_name"].lower())
+        filtered.sort(key=lambda p: -(p["app_no"] or 0))
+        filtered.sort(key=lambda p: _STATUS_RANK.get(p["status"], 9))
+        filtered.sort(key=lambda p: _period_to_key(p["period"]), reverse=True)
+
+        # ─ Revised contract: sum across active projects ─
+        # Projects table has contract_value; CO totals must be aggregated from
+        # the change_orders table (approved status only). Active + not-deleted.
+        proj_result = (
+            sb.table("projects")
+            .select("id, contract_value, status, deleted_at")
+            .execute()
+        )
+        proj_rows = proj_result.data or []
+        active_projects = [
+            p for p in proj_rows
+            if (p.get("status") or "active") == "active" and not p.get("deleted_at")
+        ]
+        active_ids = [p["id"] for p in active_projects]
+
+        co_total_by_project: dict = {}
+        if active_ids:
+            co_result = (
+                sb.table("change_orders")
+                .select("project_id, amount, status")
+                .in_("project_id", active_ids)
+                .eq("status", "approved")
+                .execute()
+            )
+            for co in (co_result.data or []):
+                pid = co.get("project_id")
+                co_total_by_project[pid] = co_total_by_project.get(pid, 0.0) + _to_float(co.get("amount"))
+
+        revised_total = sum(
+            _to_float(p.get("contract_value")) + co_total_by_project.get(p["id"], 0.0)
+            for p in active_projects
+        )
+
+        stats = {
+            "open_drafts_count": len(open_drafts),
+            "open_drafts_projects": len({p["project_id"] for p in open_drafts}),
+            "submitted_count": len(submitted_apps),
+            "submitted_outstanding": round(sum(_to_float(p["current_payment_due"]) for p in submitted_apps), 2),
+            "billed_total": round(sum(_to_float(p["current_payment_due"]) for p in period_scoped), 2),
+            "billed_projects": len({
+                p["project_id"] for p in period_scoped if _to_float(p["current_payment_due"]) > 0
+            }),
+            "revised_contract_total": round(revised_total, 2),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Don't leak Supabase internals.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not load dashboard: {type(e).__name__}",
+        )
+
+    return {"pay_apps": filtered, "stats": stats}
 
 
 @router.get("/{pay_app_id}", response_model=PayAppDetail)

@@ -28,7 +28,6 @@ export function Topbar({
     setTheme(stored);
     document.documentElement.dataset.theme = stored;
     document.body.dataset.theme = stored;
-    // White logo on dark topbar (both themes have dark topbar)
     setLogoSrc("/logo_white.png");
   }, []);
 
@@ -61,17 +60,20 @@ export function Topbar({
 
   // Build breadcrumb based on the current path
   const segments = pathname.split("/").filter(Boolean);
-  const inProject = segments[0] === "projects" && segments.length > 1;
-  let crumbs: React.ReactNode = (
-    <span className="breadcrumb-active">Pay Applications</span>
-  );
-  if (inProject) {
-    if (segments[1] === "new") {
+  const root = segments[0];
+
+  let crumbs: React.ReactNode;
+  if (root === "pay-apps") {
+    // The dashboard route
+    crumbs = <span className="breadcrumb-active">Pay Applications</span>;
+  } else if (root === "projects") {
+    const inProject = segments.length > 1;
+    if (!inProject) {
+      crumbs = <span className="breadcrumb-active">Projects</span>;
+    } else if (segments[1] === "new") {
       crumbs = (
         <>
-          <Link href="/projects" className="breadcrumb-link">
-            Pay Applications
-          </Link>
+          <Link href="/projects" className="breadcrumb-link">Projects</Link>
           <span className="breadcrumb-sep">/</span>
           <span className="breadcrumb-active">New Project</span>
         </>
@@ -79,9 +81,7 @@ export function Topbar({
     } else if (segments[1] === "import") {
       crumbs = (
         <>
-          <Link href="/projects" className="breadcrumb-link">
-            Pay Applications
-          </Link>
+          <Link href="/projects" className="breadcrumb-link">Projects</Link>
           <span className="breadcrumb-sep">/</span>
           <span className="breadcrumb-active">Import</span>
         </>
@@ -92,16 +92,9 @@ export function Topbar({
       const sub = segments[3];
       crumbs = (
         <>
-          <Link href="/projects" className="breadcrumb-link">
-            Pay Applications
-          </Link>
+          <Link href="/pay-apps" className="breadcrumb-link">Pay Applications</Link>
           <span className="breadcrumb-sep">/</span>
-          <Link
-            href={`/projects/${projectId}`}
-            className="breadcrumb-link"
-          >
-            Project
-          </Link>
+          <Link href={`/projects/${projectId}`} className="breadcrumb-link">Project</Link>
           <span className="breadcrumb-sep">/</span>
           <span className="breadcrumb-active">
             {sub === "new" ? "New Period" : sub}
@@ -109,24 +102,27 @@ export function Topbar({
         </>
       );
     } else {
+      // /projects/:id (project detail)
       crumbs = (
         <>
-          <Link href="/projects" className="breadcrumb-link">
-            Pay Applications
-          </Link>
+          <Link href="/projects" className="breadcrumb-link">Projects</Link>
           <span className="breadcrumb-sep">/</span>
           <span className="breadcrumb-active">Project</span>
         </>
       );
     }
+  } else {
+    // Fallback for any other authenticated route
+    crumbs = <span className="breadcrumb-active">Pay Applications</span>;
   }
 
-  const isProjects = segments[0] === "projects";
+  const isPayApps = root === "pay-apps";
+  const isProjects = root === "projects";
 
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <Link href="/projects" aria-label="Home">
+        <Link href="/pay-apps" aria-label="Home">
           <Image
             src={logoSrc}
             alt="Ferrocrete Builders, Inc."
@@ -141,6 +137,12 @@ export function Topbar({
       </div>
 
       <div className="topbar-right">
+        <Link
+          href="/pay-apps"
+          className={`nav-pill ${isPayApps ? "active" : ""}`}
+        >
+          Pay Applications
+        </Link>
         <Link
           href="/projects"
           className={`nav-pill ${isProjects ? "active" : ""}`}
