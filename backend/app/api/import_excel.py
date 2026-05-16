@@ -65,6 +65,69 @@ HEADER_INFO_LABELS = {
 # Sheet-702 retention rate location (Demo 1 template convention).
 S702_RETENTION_CELL = "C27"
 
+# Labels in the 702 totals section. Match case-insensitively as substrings —
+# template variations include "1.  ORIGINAL CONTRACT SUM", "ORIGINAL CONTRACT",
+# "1. Original Contract Sum", etc.
+S702_TOTALS_LABELS = {
+    "original_contract":   ("original contract sum", "original contract"),
+    "change_orders_total": ("change orders",),    # singular line summing approved COs
+    "revised_contract":    ("revised contract sum", "revised contract"),
+    "total_completed":     ("total completed", "total completed & stored", "total completed and stored"),
+    "retainage":           ("retainage",),
+    "earned_less_ret":     ("total earned less retainage", "total earned"),
+    "previous_certs":      ("less previous certificates", "previous certificates"),
+    "current_due":         ("current payment due",),
+    "balance_to_finish":   ("balance to finish",),
+}
+
+
+def _extract_702_totals(ws) -> dict:
+    """
+    Extract the AIA G702 summary totals by scanning column A for labeled rows
+    and reading the corresponding value in column G (the standard layout).
+
+    Used for migration: when importing a mid-project pay app, the 702 sheet
+    already has 'Previous Certificates' filled in — we need that value to
+    keep the migrated pay app's current_payment_due correct, since the
+    earlier pay apps (#1, #2, etc.) don't exist as DB rows.
+
+    Returns a dict like { "previous_certs": Decimal("90725"), ... } — only
+    keys that were successfully located will be present.
+
+    Returns {} if the worksheet looks nothing like a 702 sheet.
+    """
+    if ws is None:
+        return {}
+
+    out: dict = {}
+    # Scan the first 50 rows; 702 totals are typically in rows 22-31 but
+    # template variations move them around a bit.
+    for r in range(1, min(ws.max_row + 1, 51)):
+        label_cell = _safe_str(ws.cell(row=r, column=1).value)
+        if not label_cell:
+            continue
+        label_lower = label_cell.lower()
+
+        for key, phrases in S702_TOTALS_LABELS.items():
+            if key in out:
+                continue
+            if not any(p in label_lower for p in phrases):
+                continue
+            # Value is usually in column G; check G first, then F (some templates
+            # split the $ symbol into F and number into G — _safe_float handles either).
+            for col in (7, 8, 6):
+                v = ws.cell(row=r, column=col).value
+                if v is None:
+                    continue
+                fv = _safe_float(v)
+                # Accept any numeric, including 0 (App #1 will have prev_certs = 0).
+                # We just need SOMETHING in the cell.
+                if isinstance(v, (int, float)) or (isinstance(v, str) and v.strip() and v.strip() != "$"):
+                    out[key] = fv
+                    break
+            break    # don't match more labels for this row
+    return out
+
 
 def _safe_float(v) -> float:
     if v is None or v == "" or v == " ":
@@ -576,11 +639,74 @@ async def import_pay_app_excel(
         if billing_rows:
             sb.table("pay_app_billings").insert(billing_rows).execute()
 
-        # Recalc totals (best-effort; don't fail import if this errors)
+        # Recalc totals (best-effort; don't fail import if this errors).
+        # This sets total_completed/retention/earned_less_retention correctly
+        # from the per-line billings we just inserted. previous_certificates
+        # is computed by summing prior submitted/paid pay apps in the DB —
+        # which is wrong for migrated mid-project imports because the prior
+        # apps (#1, #2, etc.) don't exist as DB rows.
         try:
             save_pay_app_totals(pa["id"])
         except Exception as e:
             print(f"[import] save_pay_app_totals failed: {e}", flush=True)
+
+        # ─── MIGRATION OVERRIDE: previous_certificates ───────────────────
+        # If this is the first pay app being imported for a project AND the
+        # 702 sheet has a "Previous Certificates" value > 0, the file is a
+        # mid-project migration. Override the computed previous_certs and
+        # re-derive current_payment_due + balance_to_finish accordingly.
+        #
+        # Edge cases handled:
+        #   - App #1 with G29=0: nothing to override, leave at 0
+        #   - No 702 sheet: nothing to extract, fall back to the computed value
+        #   - Prior pay apps DO exist (later re-import after subsequent apps
+        #     were created): skip override; the DB sum is now the source of truth
+        try:
+            from decimal import Decimal
+            sheet_totals = _extract_702_totals(s702) if s702 is not None else {}
+            file_prev_certs = sheet_totals.get("previous_certs", 0.0)
+
+            if file_prev_certs and file_prev_certs > 0:
+                # Check whether any prior pay apps exist in the DB
+                prior = (sb.table("pay_apps")
+                         .select("id")
+                         .eq("project_id", project["id"])
+                         .lt("app_no", pa["app_no"])
+                         .in_("status", ["submitted", "paid"])
+                         .limit(1).execute())
+                if not prior.data:
+                    # Mid-project migration scenario — override the totals.
+                    # Re-read the current row to get the freshly-computed values.
+                    fresh = (sb.table("pay_apps").select("*")
+                             .eq("id", pa["id"]).limit(1).execute())
+                    if fresh.data:
+                        row = fresh.data[0]
+                        earned_less_ret = Decimal(str(row.get("earned_less_retention") or 0))
+                        revised_contract = Decimal(str(row.get("revised_contract") or 0))
+                        prev_certs = Decimal(str(file_prev_certs)).quantize(Decimal("0.01"))
+                        current_due = (earned_less_ret - prev_certs).quantize(Decimal("0.01"))
+                        balance_to_finish = (revised_contract - earned_less_ret).quantize(Decimal("0.01"))
+
+                        sb.table("pay_apps").update({
+                            "previous_certificates": str(prev_certs),
+                            "current_payment_due": str(current_due),
+                            "balance_to_finish": str(balance_to_finish),
+                        }).eq("id", pa["id"]).execute()
+
+                        print(
+                            f"[import] Migration override applied: prev_certs={prev_certs}, "
+                            f"current_due={current_due}, balance_to_finish={balance_to_finish}",
+                            flush=True,
+                        )
+                        result["migration_override"] = {
+                            "previous_certificates": str(prev_certs),
+                            "reason": "First pay app imported for this project; using 702!G29 as cumulative prior certs",
+                        }
+        except Exception as e:
+            # Migration override is best-effort. If it fails, the per-line
+            # previous_work values are still correct in pay_app_billings;
+            # the user can manually correct previous_certificates in the UI.
+            print(f"[import] Migration override failed (non-fatal): {e}", flush=True)
 
         audit.log(user.id, "pay_app", pa["id"], "imported_from_excel",
                   after=pa, metadata={"source_file": file.filename})
