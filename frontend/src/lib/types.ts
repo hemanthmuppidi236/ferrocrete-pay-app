@@ -215,3 +215,17 @@ export interface ReleaseTrackerDetail extends ReleaseTracker {
   lines: ReleaseLine[];
   unbilled_entries: ReleaseUnbilledEntry[];
 }
+
+export interface Waiver {
+  id: UUID;
+  release_line_id: UUID;
+  waiver_type: ReleaseType;
+  file_path: string;
+  file_name: string;
+  file_size_bytes: number | null;
+  mime_type: string | null;
+  received_at: ISODate | null;
+  uploaded_by: UUID | null;
+  uploaded_at: ISODateTime;
+  notes: string | null;
+}

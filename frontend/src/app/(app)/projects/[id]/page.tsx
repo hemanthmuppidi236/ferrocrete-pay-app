@@ -455,6 +455,97 @@ export default function ProjectDetailPage({
           )}
         </div>
 
+        {/* Sub management + Release trackers section */}
+        <div className="section-card glass" style={{ marginTop: 20 }}>
+          <div className="section-header">
+            <h2 className="section-title">Sub releases & waivers</h2>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 14,
+            }}
+          >
+            <Link
+              href={`/projects/${id}/subs`}
+              style={{
+                display: "block",
+                padding: 16,
+                background: "var(--accent-dim)",
+                border: "1px solid var(--accent-border)",
+                borderRadius: "var(--radius)",
+                textDecoration: "none",
+                color: "inherit",
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "IBM Plex Mono, monospace",
+                  fontSize: 11,
+                  letterSpacing: 1.5,
+                  textTransform: "uppercase",
+                  color: "var(--text-muted)",
+                  marginBottom: 6,
+                }}
+              >
+                Subs / Vendors
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 500 }}>
+                Manage sub list →
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  marginTop: 4,
+                }}
+              >
+                Add, edit, or deactivate subs and vendors for this project.
+              </div>
+            </Link>
+
+            <Link
+              href={`/projects/${id}/releases`}
+              style={{
+                display: "block",
+                padding: 16,
+                background: "var(--accent-dim)",
+                border: "1px solid var(--accent-border)",
+                borderRadius: "var(--radius)",
+                textDecoration: "none",
+                color: "inherit",
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "IBM Plex Mono, monospace",
+                  fontSize: 11,
+                  letterSpacing: 1.5,
+                  textTransform: "uppercase",
+                  color: "var(--text-muted)",
+                  marginBottom: 6,
+                }}
+              >
+                Release trackers
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 500 }}>
+                View all trackers →
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  marginTop: 4,
+                }}
+              >
+                Sub billing, checks, release types, and waiver uploads per
+                period.
+              </div>
+            </Link>
+          </div>
+        </div>
+
         {/* SOV section */}
         <div className="section-card glass" style={{ marginTop: 20 }}>
           <h2 className="section-title">Schedule of Values</h2>

@@ -775,6 +775,17 @@ async def import_pay_app_excel(
             # the user can manually correct previous_certificates in the UI.
             print(f"[import] Migration override failed (non-fatal): {e}", flush=True)
 
+        # Re-read the pay app row so we have the final totals for the
+        # release tracker auto-create.
+        try:
+            fresh_pa = (sb.table("pay_apps").select("*")
+                        .eq("id", pa["id"]).limit(1).execute())
+            if fresh_pa.data:
+                from .pay_apps import _autocreate_release_tracker
+                _autocreate_release_tracker(sb, fresh_pa.data[0])
+        except Exception as e:
+            print(f"[import] release tracker auto-create failed (non-fatal): {e}", flush=True)
+
         audit.log(user.id, "pay_app", pa["id"], "imported_from_excel",
                   after=pa, metadata={"source_file": file.filename})
         result["pay_app_id"] = pa["id"]

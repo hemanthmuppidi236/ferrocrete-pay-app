@@ -342,8 +342,103 @@ def create_pay_app(
     # Compute and save totals
     pa = save_pay_app_totals(pa["id"])
 
+    # Auto-create a release tracker for this period (best-effort; non-fatal).
+    # The tracker is linked to the pay app, picks up current_payment_due as its
+    # invoice_amount, and gets release lines seeded from prior tracker or from
+    # the project's active subs.
+    _autocreate_release_tracker(sb, pa)
+
     audit.log(user.id, "pay_app", pa["id"], "created", after=pa)
     return pa
+
+
+def _autocreate_release_tracker(sb, pa: dict) -> None:
+    """Auto-create a release tracker for the given pay app's project + period.
+
+    Best-effort: any failure is logged but doesn't fail the pay app creation.
+    Skips if a tracker already exists for (project_id, period) — same
+    behavior as the explicit POST endpoint, just without raising.
+    """
+    try:
+        from decimal import Decimal
+        from datetime import date
+        import calendar
+
+        project_id = pa["project_id"]
+        period = pa["period"]
+
+        # Skip if a tracker already exists for this period.
+        existing = (sb.table("release_trackers").select("id")
+                    .eq("project_id", project_id)
+                    .eq("period", period).limit(1).execute())
+        if existing.data:
+            return
+
+        # Conditional through date = last day of period
+        yy, mm = period.split("-")
+        year = 2000 + int(yy)
+        month = int(mm)
+        last_day = calendar.monthrange(year, month)[1]
+        conditional_through = date(year, month, last_day).isoformat()
+
+        # Invoice amount from current_payment_due (if positive)
+        invoice_amount = None
+        cpd = pa.get("current_payment_due")
+        if cpd is not None and Decimal(str(cpd)) > 0:
+            invoice_amount = str(Decimal(str(cpd)))
+
+        tracker_payload = {
+            "project_id": project_id,
+            "pay_app_id": pa["id"],
+            "period": period,
+            "invoice_amount": invoice_amount,
+            "conditional_through_date": conditional_through,
+        }
+        rt_res = sb.table("release_trackers").insert(tracker_payload).execute()
+        tracker_id = rt_res.data[0]["id"]
+
+        # Seed release lines: carry forward from prior period, or use active subs.
+        prior = (sb.table("release_trackers").select("id")
+                 .eq("project_id", project_id)
+                 .lt("period", period)
+                 .order("period", desc=True)
+                 .limit(1).execute())
+        if prior.data:
+            prior_lines = (sb.table("release_lines").select("*")
+                           .eq("release_tracker_id", prior.data[0]["id"]).execute())
+            if prior_lines.data:
+                new_lines = [{
+                    "release_tracker_id": tracker_id,
+                    "sub_id": pl["sub_id"],
+                    "billed_amount": "0",
+                    "check_amount": "0",
+                    "release_type": pl.get("release_type"),
+                    "exception": pl.get("exception"),
+                    "prev_month_status": None,
+                } for pl in prior_lines.data]
+                sb.table("release_lines").insert(new_lines).execute()
+        else:
+            subs = (sb.table("subs").select("id, default_release_type")
+                    .eq("project_id", project_id)
+                    .eq("active", True).execute())
+            if subs.data:
+                new_lines = [{
+                    "release_tracker_id": tracker_id,
+                    "sub_id": s["id"],
+                    "billed_amount": "0",
+                    "check_amount": "0",
+                    "release_type": s.get("default_release_type"),
+                } for s in subs.data]
+                sb.table("release_lines").insert(new_lines).execute()
+
+        # Seed 5 empty unbilled entries
+        sb.table("release_unbilled_entries").insert([{
+            "release_tracker_id": tracker_id,
+            "amount": "0",
+            "sort_order": i,
+        } for i in range(5)]).execute()
+    except Exception as e:
+        print(f"[pay_apps] auto-create release tracker failed (non-fatal): {e}", flush=True)
 
 
 @router.patch("/{pay_app_id}", response_model=PayApp)
