@@ -502,11 +502,52 @@ async def import_pay_app_excel(
 
     sb = get_service_client()
 
-    # Check for existing project
+    # Check for existing project (including soft-deleted ones, so we can revive them
+    # rather than failing on the project_no UNIQUE constraint).
     existing = sb.table("projects").select("*").eq("project_no", project_no).limit(1).execute()
+
+    project = None
+    action = None
+
     if existing.data:
-        project = existing.data[0]
-        action = "matched_existing"
+        existing_row = existing.data[0]
+        if existing_row.get("deleted_at"):
+            # Project was soft-deleted — revive it and treat as a fresh import.
+            # Clear stale child data first (pay apps, billings, SOV lines, COs)
+            # since the import will recreate them all from the file.
+            revive_id = existing_row["id"]
+            # Order matters: pay_app_billings has FKs to pay_apps and to
+            # sov_lines/change_orders. Delete it first (via each pay_app's id),
+            # then the parents.
+            pa_rows = sb.table("pay_apps").select("id").eq("project_id", revive_id).execute()
+            for pa_row in (pa_rows.data or []):
+                sb.table("pay_app_billings").delete().eq("pay_app_id", pa_row["id"]).execute()
+            sb.table("pay_apps").delete().eq("project_id", revive_id).execute()
+            sb.table("change_orders").delete().eq("project_id", revive_id).execute()
+            sb.table("sov_lines").delete().eq("project_id", revive_id).execute()
+
+            # Now update the project row: clear deleted_at, refresh fields from file.
+            update_payload = {
+                "deleted_at": None,
+                "name": project_name,
+                "contract_value": str(contract_value),
+                "retention_rate": str(retention_rate),
+                "status": "active",
+            }
+            if gc_info.get("gc_company"):
+                update_payload["gc_company"] = gc_info["gc_company"]
+            if gc_info.get("gc_address"):
+                update_payload["gc_address"] = gc_info["gc_address"]
+            res = sb.table("projects").update(update_payload).eq("id", revive_id).execute()
+            project = res.data[0] if res.data else {**existing_row, **update_payload}
+            action = "revived"
+            audit.log(user.id, "project", project["id"], "revived_via_import",
+                      before=existing_row, after=project,
+                      metadata={"source_file": file.filename})
+        else:
+            # Active existing project — match it, don't duplicate.
+            project = existing_row
+            action = "matched_existing"
     else:
         proj_payload = {
             "project_no": project_no,
@@ -516,7 +557,6 @@ async def import_pay_app_excel(
             "status": "active",
             "created_by": user.id,
         }
-        # Add GC info if we found any
         if gc_info.get("gc_company"):
             proj_payload["gc_company"] = gc_info["gc_company"]
         if gc_info.get("gc_address"):
@@ -527,8 +567,8 @@ async def import_pay_app_excel(
         audit.log(user.id, "project", project["id"], "imported_from_excel",
                   after=project, metadata={"source_file": file.filename})
 
-    # Insert SOV lines (only if project was newly created — don't duplicate)
-    if action == "created":
+    # Insert SOV lines + COs for new OR revived projects (both need fresh child data).
+    if action in ("created", "revived"):
         sov_payload = [{
             "project_id": project["id"],
             "item_no": s["item_no"],
