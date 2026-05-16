@@ -626,13 +626,40 @@ async def import_pay_app_excel(
                     break
         if not period and period_to:
             try:
-                from datetime import date
-                if isinstance(period_to, date):
-                    period = f"{period_to.year % 100:02d}-{period_to.month:02d}"
+                from datetime import date, datetime
+                # period_to may arrive as a datetime/date (when Excel stored it as
+                # a real date) OR as a string like "4/30/2026" (when the template
+                # was set up with text). Handle both.
+                pdate = None
+                if isinstance(period_to, datetime):
+                    pdate = period_to.date()
+                elif isinstance(period_to, date):
+                    pdate = period_to
+                elif isinstance(period_to, str):
+                    # Try common US date formats
+                    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d",
+                                "%m-%d-%Y", "%B %d, %Y", "%b %d, %Y"):
+                        try:
+                            pdate = datetime.strptime(period_to.strip(), fmt).date()
+                            break
+                        except ValueError:
+                            continue
+                if pdate:
+                    period = f"{pdate.year % 100:02d}-{pdate.month:02d}"
+                    # Also normalize period_to so the DB gets a proper ISO date
+                    period_to = pdate
             except Exception:
                 pass
         if not period:
-            return {**result, "warning": "Could not determine period; pay app not created"}
+            return {
+                **result,
+                "warning": (
+                    "Pay app NOT created: could not determine period from the file. "
+                    "Expected a date in 'Period To' / 'Invoice Through' (e.g. '4/30/2026') "
+                    "or a YY-MM pattern in the filename. The project, SOV, and COs were "
+                    "imported successfully — you'll need to create the pay app manually."
+                ),
+            }
 
         # Check for existing
         pa_existing = (sb.table("pay_apps")
