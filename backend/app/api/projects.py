@@ -83,6 +83,20 @@ def update_project(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 
     updates = body.model_dump(mode="json", exclude_unset=True)
+
+    # Lock fields that, if changed mid-project, would silently corrupt all
+    # historical pay-app math. The proper way to change the contract amount
+    # is a change order; retention can drop via retention_drops_at_50_pct.
+    LOCKED_FIELDS = {"contract_value", "retention_rate"}
+    rejected = LOCKED_FIELDS & updates.keys()
+    if rejected:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"These fields are locked after project creation: {', '.join(sorted(rejected))}. "
+            f"To change the contract amount, add a change order. To change retention "
+            f"behavior mid-project, use the 'retention_drops_at_50_pct' flag."
+        )
+
     if not updates:
         return existing.data[0]
 
