@@ -272,26 +272,74 @@ def create_pay_app(
 
     pa = res.data[0]
 
-    # Auto-create empty billing rows for each SOV line + CO
+    # ─── Carry forward "previous_work" from the most recent prior pay app ───
+    # For each SOV line / CO, the new pay app's previous_work = column G of the
+    # most recent prior pay app (= previous_work + this_period_work + materials_stored).
+    # This is what makes the G703 math work across periods: column D of period N+1
+    # equals column G of period N.
+    #
+    # We carry forward from ANY prior pay app regardless of status (draft/submitted/paid).
+    # Rationale: a draft pay app for a prior period represents real work that was
+    # already billed in the paper/Excel world. The "submitted/paid" filter is only
+    # used for the pay_apps.previous_certificates aggregate, which is a separate
+    # field with stricter semantics.
+    carry_forward: dict[str, dict] = {}    # key = "sov:{id}" or "co:{id}" -> totals
+    prior_apps = (
+        sb.table("pay_apps")
+        .select("id, app_no")
+        .eq("project_id", str(body.project_id))
+        .lt("app_no", body.app_no)
+        .order("app_no", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if prior_apps.data:
+        prior_pa_id = prior_apps.data[0]["id"]
+        prior_billings = (
+            sb.table("pay_app_billings").select("*")
+            .eq("pay_app_id", prior_pa_id)
+            .execute()
+        )
+        for b in (prior_billings.data or []):
+            # column G = D + E + F
+            prev = float(b.get("previous_work") or 0)
+            this_p = float(b.get("this_period_work") or 0)
+            stored = float(b.get("materials_stored") or 0)
+            total_g = prev + this_p + stored
+            if b.get("sov_line_id"):
+                carry_forward[f"sov:{b['sov_line_id']}"] = {"prev": total_g}
+            elif b.get("change_order_id"):
+                carry_forward[f"co:{b['change_order_id']}"] = {"prev": total_g}
+
+    # Auto-create billing rows for each SOV line + CO, populating previous_work
+    # from the carry-forward map (defaulting to 0 if no prior pay app exists).
     sov_res = sb.table("sov_lines").select("id").eq("project_id", str(body.project_id)).execute()
-    co_res = sb.table("change_orders").select("id").eq("project_id", str(body.project_id)).eq("status", "approved").execute()
+    co_res = (sb.table("change_orders").select("id")
+              .eq("project_id", str(body.project_id))
+              .eq("status", "approved").execute())
     billings_to_insert = []
     for s in sov_res.data:
+        cf = carry_forward.get(f"sov:{s['id']}", {})
         billings_to_insert.append({
             "pay_app_id": pa["id"],
             "sov_line_id": s["id"],
-            "previous_work": 0, "this_period_work": 0, "materials_stored": 0,
+            "previous_work": str(cf.get("prev", 0)),
+            "this_period_work": "0",
+            "materials_stored": "0",
         })
     for c in co_res.data:
+        cf = carry_forward.get(f"co:{c['id']}", {})
         billings_to_insert.append({
             "pay_app_id": pa["id"],
             "change_order_id": c["id"],
-            "previous_work": 0, "this_period_work": 0, "materials_stored": 0,
+            "previous_work": str(cf.get("prev", 0)),
+            "this_period_work": "0",
+            "materials_stored": "0",
         })
     if billings_to_insert:
         sb.table("pay_app_billings").insert(billings_to_insert).execute()
 
-    # Compute and save totals (will be 0s for fresh app)
+    # Compute and save totals
     pa = save_pay_app_totals(pa["id"])
 
     audit.log(user.id, "pay_app", pa["id"], "created", after=pa)
