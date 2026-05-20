@@ -294,7 +294,7 @@ function SubTreeNode({
           <div style={{ flex: "1 1 auto", minWidth: 0 }}>
             <div
               style={{
-                fontFamily: "EB Garamond, serif",
+                fontFamily: "EB Garamond, Garamond, Cambria, Georgia, 'Times New Roman', serif",
                 fontSize: 15,
                 fontWeight: 500,
                 color: "var(--text-primary)",
@@ -318,7 +318,7 @@ function SubTreeNode({
             {(sub.contact_name || sub.contact_email || sub.contact_phone) && (
               <div
                 style={{
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                   fontSize: 11,
                   color: "var(--text-muted)",
                   marginTop: 2,
@@ -333,7 +333,7 @@ function SubTreeNode({
           {sub.default_release_type && (
             <span
               style={{
-                fontFamily: "IBM Plex Mono, monospace",
+                fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                 fontSize: 11,
                 color: "var(--text-muted)",
                 marginRight: 4,
@@ -662,7 +662,7 @@ function SubForm({
               <>
                 <span
                   style={{
-                    fontFamily: "IBM Plex Mono, monospace",
+                    fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                     fontSize: 11,
                     letterSpacing: 1,
                     color: "var(--ferrocrete-red)",

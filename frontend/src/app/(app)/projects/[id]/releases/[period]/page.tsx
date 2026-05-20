@@ -374,7 +374,7 @@ export default function ReleaseTrackerDetailPage({
                 <div
                   style={{
                     marginTop: 14,
-                    fontFamily: "IBM Plex Mono, monospace",
+                    fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                     fontSize: 11,
                     color: "var(--text-muted)",
                   }}
@@ -407,7 +407,7 @@ export default function ReleaseTrackerDetailPage({
                       fontSize: 11,
                       color: "var(--text-muted)",
                       marginTop: 4,
-                      fontFamily: "IBM Plex Mono, monospace",
+                      fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                     }}
                   >
                     Manually overridden. Click to{" "}
@@ -648,7 +648,7 @@ export default function ReleaseTrackerDetailPage({
             <div style={{ gridColumn: "span 2" }}>
               <div
                 style={{
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                   fontSize: 13,
                   color: "var(--text-muted)",
                   marginTop: 6,
@@ -904,7 +904,7 @@ function WaiverSlot({
           alignItems: "center",
           gap: 2,
           padding: "3px 6px",
-          fontFamily: "IBM Plex Mono, monospace",
+          fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
           fontSize: 10,
           fontWeight: 600,
           letterSpacing: 0.5,
@@ -957,7 +957,7 @@ function WaiverSlot({
     return (
       <span
         style={{
-          fontFamily: "IBM Plex Mono, monospace",
+          fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
           fontSize: 10,
           color: "var(--text-faint)",
           padding: "3px 6px",
@@ -974,7 +974,7 @@ function WaiverSlot({
     <label
       style={{
         cursor: uploading ? "wait" : "pointer",
-        fontFamily: "IBM Plex Mono, monospace",
+        fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
         fontSize: 10,
         fontWeight: 500,
         letterSpacing: 0.5,
@@ -1036,7 +1036,7 @@ function WorkflowCheckbox({
       {checked && (
         <span
           style={{
-            fontFamily: "IBM Plex Mono, monospace",
+            fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
             fontSize: 10,
             color: "var(--status-green)",
             letterSpacing: 1,
@@ -1089,7 +1089,7 @@ function ErrorBanner({
 const thStyle: React.CSSProperties = {
   textAlign: "right",
   padding: "10px 8px",
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
   fontSize: 10,
   letterSpacing: "1.5px",
   textTransform: "uppercase",
@@ -1098,7 +1098,7 @@ const thStyle: React.CSSProperties = {
 };
 const totalLabelStyle: React.CSSProperties = {
   paddingTop: 14,
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
   fontSize: 10,
   letterSpacing: "1.5px",
   textTransform: "uppercase",
@@ -1108,7 +1108,7 @@ const totalLabelStyle: React.CSSProperties = {
 const totalValueStyle: React.CSSProperties = {
   paddingTop: 14,
   textAlign: "right",
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
   fontSize: 14,
   fontWeight: 600,
   color: "var(--text-primary)",

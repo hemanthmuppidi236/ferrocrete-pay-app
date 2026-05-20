@@ -185,7 +185,7 @@ export default function ProjectDetailPage({
               <>
                 <span
                   style={{
-                    fontFamily: "IBM Plex Mono, monospace",
+                    fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                     fontSize: 11,
                     letterSpacing: 1,
                     color: "var(--ferrocrete-red)",
@@ -481,7 +481,7 @@ export default function ProjectDetailPage({
             >
               <div
                 style={{
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                   fontSize: 11,
                   letterSpacing: 1.5,
                   textTransform: "uppercase",
@@ -519,7 +519,7 @@ export default function ProjectDetailPage({
             >
               <div
                 style={{
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                   fontSize: 11,
                   letterSpacing: 1.5,
                   textTransform: "uppercase",
@@ -793,7 +793,7 @@ function ProjectEditPanel({
         <div
           style={{
             marginLeft: "auto",
-            fontFamily: "IBM Plex Mono, monospace",
+            fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
             fontSize: 11,
             color: "var(--text-muted)",
             maxWidth: 320,
@@ -1051,7 +1051,7 @@ function ChangeOrderForm({
               <>
                 <span
                   style={{
-                    fontFamily: "IBM Plex Mono, monospace",
+                    fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                     fontSize: 11,
                     letterSpacing: 1,
                     color: "var(--ferrocrete-red)",
@@ -1171,7 +1171,7 @@ const editGridStyle: React.CSSProperties = {
 const thStyle: React.CSSProperties = {
   textAlign: "right",
   padding: "10px 8px",
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
   fontSize: 10,
   letterSpacing: "1.5px",
   textTransform: "uppercase",
@@ -1180,7 +1180,7 @@ const thStyle: React.CSSProperties = {
 };
 const tdMono: React.CSSProperties = {
   padding: "10px 8px",
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
   fontSize: 13,
   color: "var(--text-body)",
 };
@@ -1191,7 +1191,7 @@ const tdProse: React.CSSProperties = {
 };
 const totalLabelStyle: React.CSSProperties = {
   paddingTop: 14,
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
   fontSize: 10,
   letterSpacing: "1.5px",
   textTransform: "uppercase",
@@ -1200,7 +1200,7 @@ const totalLabelStyle: React.CSSProperties = {
 const totalValueStyle: React.CSSProperties = {
   paddingTop: 14,
   textAlign: "right",
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
   fontSize: 16,
   fontWeight: 600,
   color: "var(--text-primary)",

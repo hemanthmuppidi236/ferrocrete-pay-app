@@ -20,7 +20,7 @@ export default async function AuthErrorPage({
           style={{
             fontSize: 12,
             color: "var(--text-faint)",
-            fontFamily: "IBM Plex Mono, monospace",
+            fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
             letterSpacing: "0.4px",
             lineHeight: 1.7,
             marginBottom: 24,

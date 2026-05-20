@@ -188,7 +188,7 @@ export default function ProjectReleasesPage({
                 >
                   <div
                     style={{
-                      fontFamily: "IBM Plex Mono, monospace",
+                      fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
                       fontSize: 12,
                       color: "var(--text-muted)",
                       minWidth: 70,
@@ -276,7 +276,7 @@ function WorkflowDots({ tracker }: { tracker: ReleaseTracker }) {
       style={{
         display: "inline-flex",
         gap: 5,
-        fontFamily: "IBM Plex Mono, monospace",
+        fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
         fontSize: 10,
         color: "var(--text-muted)",
         textTransform: "uppercase",
