@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
 import type {
   Project,
   ReleaseTracker,
@@ -45,7 +45,7 @@ export default function ProjectReleasesPage({
         setSubs(s);
       } catch (e) {
         if (cancelled) return;
-        setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+        setError(formatApiError(e));
       }
     })();
     return () => {
@@ -100,7 +100,7 @@ export default function ProjectReleasesPage({
       });
       router.push(`/projects/${id}/releases/${tracker.period}`);
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setError(formatApiError(e));
       setCreating(null);
     }
   }

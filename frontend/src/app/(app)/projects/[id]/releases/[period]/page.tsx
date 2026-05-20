@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
 import type {
   Project,
   ReleaseTrackerDetail,
@@ -75,7 +75,7 @@ export default function ReleaseTrackerDetailPage({
       } catch (e) {
         if (cancelled) return;
         setError(
-          e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e)
+          formatApiError(e)
         );
       }
     })();
@@ -213,9 +213,23 @@ export default function ReleaseTrackerDetailPage({
         unbilledPayload
       );
 
+      // Refetch so local state reflects what the server actually persisted
+      // (totals, server-coerced values, line IDs for newly inserted rows).
+      try {
+        const fresh = await api.get<ReleaseTrackerDetail>(
+          `/release-trackers/${tracker.id}`
+        );
+        setTracker(fresh);
+        setLines(fresh.lines ?? []);
+        setUnbilled(fresh.unbilled_entries ?? []);
+      } catch {
+        // Refetch is non-fatal — local state may be slightly stale but the
+        // save itself succeeded.
+      }
+
       flashSaved();
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setError(formatApiError(e));
     } finally {
       setSaving(false);
     }
@@ -231,7 +245,7 @@ export default function ReleaseTrackerDetailPage({
       );
       setTracker((prev) => (prev ? { ...prev, ...res } : prev));
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setError(formatApiError(e));
     }
   }
 
@@ -852,7 +866,7 @@ function WaiverSlot({
       });
       await onWaiverChanged();
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
     } finally {
       setUploading(false);
     }
@@ -866,7 +880,7 @@ function WaiverSlot({
       );
       window.open(res.download_url, "_blank");
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
     }
   }
 
@@ -876,7 +890,7 @@ function WaiverSlot({
       await api.delete(`/waivers/${existing.id}`);
       await onWaiverChanged();
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
     }
   }
 

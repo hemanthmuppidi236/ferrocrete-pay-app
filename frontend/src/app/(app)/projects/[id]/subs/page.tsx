@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
 import type { Project, Sub, ReleaseType } from "@/lib/types";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
@@ -34,7 +34,7 @@ export default function ProjectSubsPage({
         setSubs(s);
       } catch (e) {
         if (cancelled) return;
-        setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+        setError(formatApiError(e));
       }
     })();
     return () => {
@@ -49,7 +49,7 @@ export default function ProjectSubsPage({
       );
       setSubs(s);
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setError(formatApiError(e));
     }
   }
 
@@ -503,7 +503,7 @@ function SubForm({
       }
       await onSaved();
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
     } finally {
       setSaving(false);
     }
@@ -516,7 +516,7 @@ function SubForm({
       await api.delete(`/projects/${projectId}/subs/${initial.id}`);
       await onDelete();
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
       setConfirmingDelete(false);
     } finally {
       setSaving(false);

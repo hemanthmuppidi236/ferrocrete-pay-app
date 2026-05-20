@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
 
 interface ImportResult {
   project: { id: string; name: string; project_no: string };
@@ -45,11 +45,7 @@ export default function ImportProjectPage() {
       );
       setResult(res);
     } catch (e) {
-      if (e instanceof ApiError) {
-        setError(`${e.status}: ${e.detail}`);
-      } else {
-        setError(String(e));
-      }
+      setError(formatApiError(e));
     } finally {
       setBusy(false);
     }

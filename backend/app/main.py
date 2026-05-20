@@ -9,7 +9,8 @@ In production (Render):
 """
 
 import logging
-from fastapi import FastAPI, Request, status
+import uuid
+from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -40,6 +41,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # CRITICAL: expose these so the browser can read responses; without
+    # this Chrome treats some error responses as opaque and surfaces
+    # "TypeError: Failed to fetch" to the JS client instead of letting it
+    # see the 500 body.
+    expose_headers=["X-Error-Id"],
 )
 
 
@@ -59,18 +65,53 @@ async def validation_handler(request: Request, exc: RequestValidationError):
     )
 
 
-@app.exception_handler(Exception)
-async def fallback_handler(request: Request, exc: Exception):
-    """Catch-all so we never leak stack traces in prod responses, but log them."""
-    log.exception("Unhandled exception in %s %s", request.method, request.url.path)
-    if settings.app_env == "development":
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": str(exc), "type": type(exc).__name__},
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Pass HTTPException through but log 5xx for visibility."""
+    if exc.status_code >= 500:
+        log.error(
+            "HTTPException %d in %s %s: %s",
+            exc.status_code, request.method, request.url.path, exc.detail,
         )
     return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers or None,
+    )
+
+
+@app.exception_handler(Exception)
+async def fallback_handler(request: Request, exc: Exception):
+    """
+    Catch-all so we never leak stack traces in prod responses, but log them.
+
+    Includes:
+    - An error_id correlation ID logged alongside the traceback so we can
+      grep logs for the matching request when a user reports an error.
+    - The exception class name (always safe) so debugging is possible
+      without seeing the message.
+    - In non-production environments, the full str(exc) is included so
+      developers can debug locally.
+    """
+    error_id = uuid.uuid4().hex[:12]
+    log.exception(
+        "Unhandled %s in %s %s [error_id=%s]",
+        type(exc).__name__, request.method, request.url.path, error_id,
+    )
+    is_dev = settings.app_env in ("development", "dev", "local")
+    body = {
+        "detail": (
+            f"{type(exc).__name__}: {exc}"
+            if is_dev
+            else f"Server error (id: {error_id}). Check Render logs for [error_id={error_id}]."
+        ),
+        "error_id": error_id,
+        "type": type(exc).__name__,
+    }
+    return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error"},
+        content=body,
+        headers={"X-Error-Id": error_id},
     )
 
 

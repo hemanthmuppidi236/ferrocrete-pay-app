@@ -7,7 +7,11 @@
  *   const newProject = await api.post<Project>("/projects", { name, project_no });
  *
  * Auth: automatically attaches the Supabase access token from the current session.
- * Errors: throws ApiError with .status and .detail on non-2xx responses.
+ * Errors:
+ *   - Non-2xx HTTP responses throw ApiError with .status and .detail.
+ *   - Network/CORS failures throw NetworkError with a clear message and .cause.
+ *   - Both extend Error and have a user-facing .message; use formatApiError()
+ *     to produce a consistent string for display.
  */
 
 import { createClient } from "@/lib/supabase/client";
@@ -26,6 +30,45 @@ export class ApiError extends Error {
     super(detail);
     this.name = "ApiError";
   }
+}
+
+/**
+ * Thrown when fetch() itself fails — DNS, connection drop, CORS, etc.
+ * These are distinct from API errors because there's no HTTP status code
+ * to display and the user usually needs to retry or check connectivity.
+ */
+export class NetworkError extends Error {
+  constructor(message: string, public override cause?: unknown) {
+    super(message);
+    this.name = "NetworkError";
+  }
+}
+
+/**
+ * Produce a user-facing error string for either error type.
+ * Use this in every catch block instead of String(e) so the user always
+ * sees something meaningful instead of "TypeError: Failed to fetch".
+ */
+export function formatApiError(e: unknown): string {
+  if (e instanceof ApiError) {
+    // 500-level: show "Server error: <detail>" rather than just the number.
+    // 4xx: show the detail directly since it's usually meaningful.
+    if (e.status >= 500) return `Server error (${e.status}): ${e.detail}`;
+    if (e.status === 401) return "You're signed out. Refresh and sign in again.";
+    if (e.status === 403) return `Not allowed: ${e.detail}`;
+    if (e.status === 404) return `Not found: ${e.detail}`;
+    if (e.status === 409) return `Conflict: ${e.detail}`;
+    if (e.status === 413) return "File too large for upload.";
+    if (e.status === 422) return `Invalid input: ${e.detail}`;
+    return `${e.status}: ${e.detail}`;
+  }
+  if (e instanceof NetworkError) {
+    return `Couldn't reach the server. ${e.message}`;
+  }
+  if (e instanceof Error) {
+    return e.message || String(e);
+  }
+  return String(e);
 }
 
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
@@ -68,12 +111,29 @@ async function request<T = unknown>(
     payload = JSON.stringify(body);
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: payload,
-    signal: options.signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: payload,
+      signal: options.signal,
+    });
+  } catch (e) {
+    // fetch() throws TypeError on network-level failures. This is the
+    // class of errors that previously surfaced as "TypeError: Failed to fetch".
+    // Common causes: server unreachable, CORS preflight failed, connection
+    // dropped mid-request, or — sneakily — a 500 response with missing CORS
+    // headers (which Chrome treats as a network error even though bytes came back).
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw e; // let abort propagate
+    }
+    const msg =
+      e instanceof TypeError
+        ? "The server may be cold-starting or unreachable. Wait a moment and try again."
+        : `Network error: ${e instanceof Error ? e.message : String(e)}`;
+    throw new NetworkError(msg, e);
+  }
 
   // 204 No Content
   if (res.status === 204) return undefined as T;

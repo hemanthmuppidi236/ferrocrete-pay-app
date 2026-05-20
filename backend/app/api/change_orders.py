@@ -13,6 +13,7 @@ flows into the *current draft and future apps*, not retroactively into
 already-signed-off periods.
 """
 
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from uuid import UUID
@@ -27,6 +28,28 @@ router = APIRouter(prefix="/projects/{project_id}/change-orders", tags=["change_
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
+
+
+def _billing_has_work(b: dict) -> bool:
+    """Return True if a billing row has any non-zero work logged.
+
+    Uses Decimal to compare currency values (not float, which can have
+    subtle precision issues for values like 0.1 + 0.2).
+    """
+    for key in ("previous_work", "this_period_work", "materials_stored"):
+        v = b.get(key)
+        if v is None:
+            continue
+        try:
+            if Decimal(str(v)) != 0:
+                return True
+        except Exception:
+            # If a value is malformed, treat it as non-zero out of caution
+            # (better to refuse a destructive operation than to silently
+            # drop billed work).
+            return True
+    return False
+
 
 
 def _list_draft_pay_apps(sb, project_id: str) -> list:
@@ -88,10 +111,7 @@ def _remove_co_billing_from_drafts(sb, project_id: str, co_id: str) -> tuple[int
         if not existing.data:
             continue
         b = existing.data[0]
-        prev = float(b.get("previous_work") or 0)
-        this_p = float(b.get("this_period_work") or 0)
-        stored = float(b.get("materials_stored") or 0)
-        if prev > 0 or this_p > 0 or stored > 0:
+        if _billing_has_work(b):
             blocking.append(pa["app_no"])
             continue
         sb.table("pay_app_billings").delete().eq("id", b["id"]).execute()
@@ -189,13 +209,8 @@ def update_change_order(
                  .eq("pay_app_id", pa["id"])
                  .eq("change_order_id", str(co_id))
                  .limit(1).execute())
-            if b.data:
-                row = b.data[0]
-                prev = float(row.get("previous_work") or 0)
-                this_p = float(row.get("this_period_work") or 0)
-                stored = float(row.get("materials_stored") or 0)
-                if prev > 0 or this_p > 0 or stored > 0:
-                    blocked.append(pa["app_no"])
+            if b.data and _billing_has_work(b.data[0]):
+                blocked.append(pa["app_no"])
         if blocked:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -252,10 +267,7 @@ def delete_change_order(
             if status_val != "draft":
                 blocking.append(f"App #{pa_appno.get(b['pay_app_id'])} ({status_val})")
                 continue
-            prev = float(b.get("previous_work") or 0)
-            this_p = float(b.get("this_period_work") or 0)
-            stored = float(b.get("materials_stored") or 0)
-            if prev > 0 or this_p > 0 or stored > 0:
+            if _billing_has_work(b):
                 blocking.append(f"App #{pa_appno.get(b['pay_app_id'])} (draft, has billed work)")
         if blocking:
             raise HTTPException(

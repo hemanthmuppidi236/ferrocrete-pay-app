@@ -613,30 +613,29 @@ async def import_pay_app_excel(
 
     # Optionally create the pay app row
     if create_pay_app and app_no:
-        # Derive period from filename or period_to.
-        # Look for the LAST YY-MM pattern in the filename, and ensure month is 01-12.
-        # This avoids confusion with project numbers (also formatted like 25-05).
+        from datetime import date, datetime
+        import calendar
+        import re
+
+        # Step 1: Derive `period` (YY-MM) — prefer filename, fall back to period_to.
         period = None
         if file.filename:
-            import re
             matches = re.findall(r"(\d{2})-(\d{2})", file.filename)
             for yy, mm in reversed(matches):
                 if 1 <= int(mm) <= 12:
                     period = f"{yy}-{mm}"
                     break
-        if not period and period_to:
+
+        # Step 2: Normalize period_to to a `date` object. We need this regardless
+        # of where `period` came from, since the DB column is NOT NULL.
+        pdate = None
+        if period_to is not None:
             try:
-                from datetime import date, datetime
-                # period_to may arrive as a datetime/date (when Excel stored it as
-                # a real date) OR as a string like "4/30/2026" (when the template
-                # was set up with text). Handle both.
-                pdate = None
                 if isinstance(period_to, datetime):
                     pdate = period_to.date()
                 elif isinstance(period_to, date):
                     pdate = period_to
                 elif isinstance(period_to, str):
-                    # Try common US date formats
                     for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d",
                                 "%m-%d-%Y", "%B %d, %Y", "%b %d, %Y"):
                         try:
@@ -644,12 +643,31 @@ async def import_pay_app_excel(
                             break
                         except ValueError:
                             continue
-                if pdate:
-                    period = f"{pdate.year % 100:02d}-{pdate.month:02d}"
-                    # Also normalize period_to so the DB gets a proper ISO date
-                    period_to = pdate
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[import] period_to parse failed (non-fatal): {e}", flush=True)
+
+        # If we got a date from period_to and didn't get period from filename,
+        # derive period from the date.
+        if not period and pdate:
+            period = f"{pdate.year % 100:02d}-{pdate.month:02d}"
+
+        # If we got period from filename but no usable period_to, derive period_to
+        # as the last day of that month (the AIA G702 convention).
+        if period and not pdate:
+            try:
+                yy_s, mm_s = period.split("-")
+                yr = 2000 + int(yy_s)
+                mo = int(mm_s)
+                last_day = calendar.monthrange(yr, mo)[1]
+                pdate = date(yr, mo, last_day)
+                print(
+                    f"[import] period_to derived from period: {pdate.isoformat()} "
+                    f"(filename had period {period} but no usable PERIOD TO date in the file)",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"[import] failed to derive period_to from period: {e}", flush=True)
+
         if not period:
             return {
                 **result,
@@ -660,6 +678,16 @@ async def import_pay_app_excel(
                     "imported successfully — you'll need to create the pay app manually."
                 ),
             }
+        if not pdate:
+            return {
+                **result,
+                "warning": (
+                    "Pay app NOT created: could not determine the period-ending date. "
+                    "Expected a date in 'PERIOD TO' / 'INVOICE THROUGH' on the G703 or 702 "
+                    "sheet (e.g. '4/30/2026'). The project, SOV, and COs were imported "
+                    "successfully — you'll need to create the pay app manually."
+                ),
+            }
 
         # Check for existing
         pa_existing = (sb.table("pay_apps")
@@ -668,16 +696,11 @@ async def import_pay_app_excel(
         if pa_existing.data:
             return {**result, "pay_app_id": pa_existing.data[0]["id"], "pay_app_action": "exists"}
 
-        from datetime import date
-        period_to_iso = None
-        if hasattr(period_to, "isoformat"):
-            period_to_iso = period_to.isoformat() if isinstance(period_to, date) else None
-
         pa_payload = {
             "project_id": project["id"],
             "period": period,
             "app_no": int(app_no) if isinstance(app_no, (int, float)) else 1,
-            "period_to": period_to_iso,
+            "period_to": pdate.isoformat(),
             "status": "draft",
         }
         pa_res = sb.table("pay_apps").insert(pa_payload).execute()
@@ -734,12 +757,16 @@ async def import_pay_app_excel(
             file_prev_certs = sheet_totals.get("previous_certs", 0.0)
 
             if file_prev_certs and file_prev_certs > 0:
-                # Check whether any prior pay apps exist in the DB
+                # Check whether ANY prior pay app exists in the DB (any status).
+                # If a draft prior app exists, the per-line previous_work values
+                # in our newly-inserted billings are likely already correct,
+                # so the migration override would double-count. Be conservative:
+                # only override when this truly is the first pay app for the
+                # project.
                 prior = (sb.table("pay_apps")
-                         .select("id")
+                         .select("id, status")
                          .eq("project_id", project["id"])
                          .lt("app_no", pa["app_no"])
-                         .in_("status", ["submitted", "paid"])
                          .limit(1).execute())
                 if not prior.data:
                     # Mid-project migration scenario — override the totals.
@@ -769,6 +796,13 @@ async def import_pay_app_excel(
                             "previous_certificates": str(prev_certs),
                             "reason": "First pay app imported for this project; using 702!G29 as cumulative prior certs",
                         }
+                else:
+                    print(
+                        f"[import] Skipped migration override: prior pay app(s) exist "
+                        f"(status={prior.data[0].get('status')}). Computed previous_certificates "
+                        f"is the source of truth.",
+                        flush=True,
+                    )
         except Exception as e:
             # Migration override is best-effort. If it fails, the per-line
             # previous_work values are still correct in pay_app_billings;

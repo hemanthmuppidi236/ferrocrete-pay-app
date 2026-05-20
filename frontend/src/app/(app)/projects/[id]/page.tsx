@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
 import type {
   Project,
   SOVLine,
@@ -51,7 +51,7 @@ export default function ProjectDetailPage({
         setPayApps(pa);
       } catch (e) {
         if (cancelled) return;
-        setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+        setError(formatApiError(e));
       }
     })();
     return () => {
@@ -64,7 +64,7 @@ export default function ProjectDetailPage({
       const c = await api.get<ChangeOrder[]>(`/projects/${id}/change-orders`);
       setCos(c);
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setError(formatApiError(e));
     }
   }
 
@@ -82,7 +82,7 @@ export default function ProjectDetailPage({
       const p = await api.get<Project>(`/projects/${id}`);
       setProject(p);
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setError(formatApiError(e));
     }
   }
 
@@ -139,7 +139,7 @@ export default function ProjectDetailPage({
       await api.delete(`/projects/${project.id}`);
       router.push("/projects");
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      setError(formatApiError(e));
       setDeleting(false);
       setConfirmingDelete(false);
     }
@@ -677,7 +677,7 @@ function ProjectEditPanel({
       await api.patch(`/projects/${project.id}`, payload);
       await onSaved();
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
     } finally {
       setSaving(false);
     }
@@ -905,7 +905,7 @@ function ChangeOrderForm({
       }
       await onSaved();
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
     } finally {
       setSaving(false);
     }
@@ -918,7 +918,7 @@ function ChangeOrderForm({
       await api.delete(`/projects/${projectId}/change-orders/${initial.id}`);
       await onDelete();
     } catch (e) {
-      onError(e instanceof ApiError ? `${e.status}: ${e.detail}` : String(e));
+      onError(formatApiError(e));
       setConfirmingDelete(false);
     } finally {
       setSaving(false);
