@@ -306,7 +306,7 @@ export default function PayAppDraftPage({
               style={{
                 fontSize: 14,
                 color: "var(--text-body)",
-                fontFamily: "EB Garamond, Garamond, Cambria, Georgia, 'Times New Roman', serif",
+                fontFamily: "EB Garamond, serif",
               }}
             >
               {isReadOnly ? (
@@ -350,7 +350,7 @@ export default function PayAppDraftPage({
             />
           )}
 
-          <div style={{ marginTop: 24, fontSize: 12, color: "var(--text-faint)", fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace", letterSpacing: "0.5px" }}>
+          <div style={{ marginTop: 24, fontSize: 12, color: "var(--text-faint)", fontFamily: "IBM Plex Mono, monospace", letterSpacing: "0.5px" }}>
             Total schedule of values: <strong>{fmtMoneyShort(totalRow)}</strong>
           </div>
         </div>
