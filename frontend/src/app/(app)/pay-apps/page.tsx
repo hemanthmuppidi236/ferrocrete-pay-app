@@ -240,7 +240,7 @@ export default function PayAppsDashboard() {
 
         {/* ───── Filter row ───── */}
         <div className="dash-filter-row">
-          <span className="dash-filter-eyebrow">PERIOD</span>
+          <span className="dash-filter-eyebrow">Period</span>
           <div className="dash-chip-group">
             {(["month", "quarter", "half", "year", "custom"] as PeriodType[]).map(t => (
               <button
@@ -289,7 +289,7 @@ export default function PayAppsDashboard() {
 
           <div className="dash-filter-spacer" />
 
-          <span className="dash-filter-eyebrow">FILTER</span>
+          <span className="dash-filter-eyebrow">Filter</span>
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
@@ -383,7 +383,7 @@ function DashStatCard({
 }) {
   return (
     <div className={highlighted ? "dash-stat-card dash-stat-card-highlight" : "dash-stat-card glass"}>
-      <div className="dash-stat-eyebrow">{eyebrow.toUpperCase()}</div>
+      <div className="dash-stat-eyebrow">{eyebrow}</div>
       <div className="dash-stat-value">{value}</div>
       <div className="dash-stat-subdetail">{subdetail}</div>
     </div>

@@ -97,7 +97,7 @@ export default function NewPayAppPage({
       <div className="page-content">
         <form onSubmit={create} className="glass form-card">
           <div className="form-row">
-            <label className="form-label">Billing Period</label>
+            <label className="form-label">Billing period</label>
             <input
               type="text"
               value={period}

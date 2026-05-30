@@ -63,7 +63,7 @@ export default function ImportProjectPage() {
       <div className="page-content">
         <form onSubmit={submit} className="glass form-card">
           <div className="form-row">
-            <label className="form-label">Pay App File</label>
+            <label className="form-label">Pay app file</label>
             <input
               type="file"
               accept=".xlsx"

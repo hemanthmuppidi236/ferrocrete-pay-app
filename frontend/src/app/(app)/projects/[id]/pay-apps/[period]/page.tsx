@@ -263,8 +263,8 @@ export default function PayAppDraftPage({
       <div className="page-header">
         <div className="page-title-block">
           <div className="page-eyebrow">
-            PAY APPLICATION {isReadOnly ? `· ${payApp.status.toUpperCase()}` : "DRAFT"}{" "}
-            · APP NO. {payApp.app_no} · PERIOD {payApp.period}
+            Pay application {isReadOnly ? `· ${payApp.status}` : "· Draft"}{" "}
+            · App no. {payApp.app_no} · Period {payApp.period}
           </div>
           <h1 className="page-title">{project.name}</h1>
           <div className="page-meta">
@@ -319,7 +319,7 @@ export default function PayAppDraftPage({
               ) : (
                 <>
                   <b style={{ color: "var(--ferrocrete-red)" }}>Tip · </b>
-                  Type into <b>This Period</b> to bill this month. The G702
+                  Type into <b>This period</b> to bill this month. The G702
                   sidebar updates live.
                 </>
               )}
@@ -340,7 +340,7 @@ export default function PayAppDraftPage({
           {/* Change Orders section */}
           {approvedCos.length > 0 && (
             <SovTable
-              title="Approved Change Orders"
+              title="Approved change orders"
               sovLines={[]}
               cos={approvedCos}
               billings={billings}
@@ -398,7 +398,7 @@ export default function PayAppDraftPage({
             />
 
             <div className="preview-pay-due">
-              <div className="preview-pay-due-label">CURRENT PAYMENT DUE</div>
+              <div className="preview-pay-due-label">Current payment due</div>
               <div className="preview-pay-due-value">
                 {fmtMoney(totals.currentPaymentDue, { zero: "$0.00" })}
               </div>
@@ -510,7 +510,7 @@ function SovTable({
           <div>Description</div>
           <div style={{ textAlign: "right" }}>Scheduled</div>
           <div style={{ textAlign: "right" }}>Previous</div>
-          <div style={{ textAlign: "right" }}>This Period</div>
+          <div style={{ textAlign: "right" }}>This period</div>
           <div style={{ textAlign: "right" }}>Total</div>
           <div style={{ textAlign: "right" }}>Retention</div>
         </div>

@@ -446,7 +446,7 @@ export default function ProjectDetailPage({
                 )}
                 <tr>
                   <td colSpan={3} style={{ paddingTop: 14 }}></td>
-                  <td style={totalLabelStyle}>Approved Total</td>
+                  <td style={totalLabelStyle}>Approved total</td>
                   <td style={totalValueStyle}>{fmtMoneyShort(coTotal)}</td>
                   {canEdit && <td></td>}
                 </tr>
