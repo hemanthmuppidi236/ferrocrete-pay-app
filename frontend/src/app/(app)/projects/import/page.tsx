@@ -13,10 +13,6 @@ interface ImportResult {
   pay_app_id?: string;
   pay_app_action?: string;
   warning?: string;
-  migration_override?: {
-    previous_certificates: string;
-    reason: string;
-  };
 }
 
 export default function ImportProjectPage() {
@@ -211,27 +207,6 @@ export default function ImportProjectPage() {
               {result.warning && (
                 <li style={{ color: "var(--status-amber)" }}>
                   ⚠ {result.warning}
-                </li>
-              )}
-              {result.migration_override && (
-                <li style={{ color: "var(--accent-text)" }}>
-                  ℹ Backfilled <strong>previous certificates</strong> from the
-                  file&apos;s 702 sheet:{" "}
-                  <span className="font-mono" style={{ fontSize: 13 }}>
-                    $
-                    {parseFloat(
-                      result.migration_override.previous_certificates
-                    ).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </span>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-muted)",
-                      marginTop: 4,
-                    }}
-                  >
-                    {result.migration_override.reason}
-                  </div>
                 </li>
               )}
             </ul>

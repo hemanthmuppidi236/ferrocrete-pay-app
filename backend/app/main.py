@@ -19,7 +19,7 @@ from .core.config import settings
 from .api import (
     me, projects, sov_lines, change_orders,
     pay_apps, subs, release_trackers, waivers,
-    artifacts, email_outbox, import_excel,
+    artifacts, email_outbox, import_excel, admin,
 )
 
 
@@ -127,3 +127,4 @@ app.include_router(waivers.router)
 app.include_router(artifacts.router)
 app.include_router(email_outbox.router)
 app.include_router(import_excel.router)
+app.include_router(admin.router)
