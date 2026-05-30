@@ -1,15 +1,18 @@
 """
 Pay Applications API.
 
-  GET    /pay-apps                         all (filterable by project, status, period)
-  GET    /pay-apps/dashboard               dashboard data: pay apps + aggregate stats
-  GET    /pay-apps/{id}                    one (with billings)
-  POST   /pay-apps                         create new (draft)
-  PATCH  /pay-apps/{id}                    update metadata
-  PUT    /pay-apps/{id}/billings           replace billings (recalcs totals)
-  POST   /pay-apps/{id}/submit             draft -> submitted
-  POST   /pay-apps/{id}/mark-paid          submitted -> paid
-  DELETE /pay-apps/{id}                    only allowed on draft
+  GET    /pay-apps                                all (filterable by project, status, period)
+  GET    /pay-apps/dashboard                      dashboard data: pay apps + aggregate stats
+  GET    /pay-apps/{id}                           one (with billings)
+  POST   /pay-apps                                create new (draft)
+  PATCH  /pay-apps/{id}                           update metadata
+  PUT    /pay-apps/{id}/billings                  replace billings (recalcs totals)
+  POST   /pay-apps/{id}/submit-for-approval       draft → pending_approval  (accountant/admin)
+  POST   /pay-apps/{id}/approve                   pending_approval → approved (admin)
+  POST   /pay-apps/{id}/reject                    pending_approval → draft + reason (admin)
+  POST   /pay-apps/{id}/send-to-gc                approved → submitted; emails GC if set
+  POST   /pay-apps/{id}/mark-paid                 submitted → paid
+  DELETE /pay-apps/{id}                           only allowed on draft
 """
 
 from datetime import datetime, timezone
@@ -20,11 +23,13 @@ from uuid import UUID
 
 from ..core.auth import CurrentUser, get_current_user, require_role
 from ..core.supabase_client import get_service_client
-from ..core import audit
+from ..core import audit, email as email_svc
+from ..core.config import settings
 from ..core.pay_app_math import calculate_pay_app_totals, save_pay_app_totals
 from ..schemas.pay_apps import (
     PayApp, PayAppDetail, PayAppCreate, PayAppUpdate,
     PayAppBillingsUpdate, BillingLine,
+    PayAppRejectBody, PayAppMarkPaidBody,
 )
 
 router = APIRouter(prefix="/pay-apps", tags=["pay_apps"])
@@ -52,7 +57,16 @@ def list_pay_apps(
 # ─── Dashboard helpers ──────────────────────────────────────────────────
 
 _DASHBOARD_MAX_ROWS = 500
-_STATUS_RANK = {"draft": 0, "submitted": 1, "paid": 2, "void": 3}
+# Sort order for the dashboard table within a single period — drafts and items
+# needing action surface above completed work.
+_STATUS_RANK = {
+    "draft": 0,
+    "pending_approval": 1,
+    "approved": 2,
+    "submitted": 3,
+    "paid": 4,
+    "void": 5,
+}
 
 
 def _period_to_key(period: str) -> str:
@@ -115,10 +129,10 @@ def dashboard(
         rows_result = (
             sb.table("pay_apps")
             .select(
-                "id, project_id, period, app_no, status, "
+                "id, project_id, period, app_no, status, due_date, "
                 "current_payment_due, total_completed_to_date, revised_contract, "
-                "updated_at, "
-                "projects(name, project_no, gc_company, deleted_at)"
+                "submitted_for_approval_at, updated_at, "
+                "projects(name, project_no, gc_company, gc_contact_email, deleted_at)"
             )
             .limit(_DASHBOARD_MAX_ROWS)
             .execute()
@@ -140,17 +154,23 @@ def dashboard(
                 "project_name": proj.get("name") or "Unknown project",
                 "project_no": proj.get("project_no") or "",
                 "gc_company": proj.get("gc_company") or "",
+                "gc_email_configured": bool((proj.get("gc_contact_email") or "").strip()),
                 "period": r.get("period") or "",
                 "app_no": r.get("app_no"),
                 "status": (r.get("status") or "draft").strip().lower(),
                 # Keep Money strings on the wire; fmtMoneyShort parses them.
                 "current_payment_due": r.get("current_payment_due") or "0",
                 "percent_complete": round(pct, 1),
+                "due_date": r.get("due_date"),
+                "submitted_for_approval_at": r.get("submitted_for_approval_at"),
                 "updated_at": r.get("updated_at"),
             })
 
-        # ─ Company-wide stats (UNFILTERED) ─
+        # ─ Company-wide queue counts (UNFILTERED) ─
         open_drafts = [p for p in all_rows if p["status"] == "draft"]
+        pending_approval_apps = [p for p in all_rows if p["status"] == "pending_approval"]
+        approved_apps = [p for p in all_rows if p["status"] == "approved"]
+        # Treat the legacy 'submitted' state as "out to client / awaiting payment"
         submitted_apps = [p for p in all_rows if p["status"] == "submitted"]
 
         # ─ Period-scoped billed total ─
@@ -163,7 +183,7 @@ def dashboard(
         filtered = period_scoped
         if status_filter:
             norm = status_filter.strip().lower()
-            if norm in ("draft", "submitted", "paid", "void"):
+            if norm in ("draft", "pending_approval", "approved", "submitted", "paid", "void"):
                 filtered = [p for p in filtered if p["status"] == norm]
         if project_id:
             pid = str(project_id)
@@ -213,6 +233,19 @@ def dashboard(
         stats = {
             "open_drafts_count": len(open_drafts),
             "open_drafts_projects": len({p["project_id"] for p in open_drafts}),
+
+            # Raz's "your court" — pay apps awaiting admin approval
+            "pending_approval_count": len(pending_approval_apps),
+            "pending_approval_total": round(
+                sum(_to_float(p["current_payment_due"]) for p in pending_approval_apps), 2
+            ),
+
+            # Accountant's "your court" — approved and ready to send to GC
+            "approved_count": len(approved_apps),
+            "approved_total": round(
+                sum(_to_float(p["current_payment_due"]) for p in approved_apps), 2
+            ),
+
             "submitted_count": len(submitted_apps),
             "submitted_outstanding": round(sum(_to_float(p["current_payment_due"]) for p in submitted_apps), 2),
             "billed_total": round(sum(_to_float(p["current_payment_due"]) for p in period_scoped), 2),
@@ -505,53 +538,280 @@ def update_billings(
     return pa
 
 
-@router.post("/{pay_app_id}/submit", response_model=PayApp)
-def submit_pay_app(
-    pay_app_id: UUID,
-    user: CurrentUser = Depends(require_role("admin", "accountant", "pe")),
-):
-    """Transition draft -> submitted. Recalcs totals first to make sure they're current."""
-    sb = get_service_client()
-    existing = sb.table("pay_apps").select("*").eq("id", str(pay_app_id)).limit(1).execute()
-    if not existing.data:
+# ═══════════════════════════════════════════════════════════════════════
+# Workflow transitions
+#
+#     draft ── submit-for-approval ──► pending_approval ── approve ──► approved
+#                                            │                            │
+#                                          reject (reason)         send-to-gc
+#                                            │                            │
+#                                            ▼                            ▼
+#                                          draft                      submitted ── mark-paid ──► paid
+#
+# Each transition validates the current state, records actor + timestamp,
+# and fires the matching notification email.
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _load_pay_app_or_404(sb, pay_app_id: UUID) -> dict:
+    res = sb.table("pay_apps").select("*").eq("id", str(pay_app_id)).limit(1).execute()
+    if not res.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Pay app not found")
-    if existing.data[0]["status"] != "draft":
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            f"Pay app is {existing.data[0]['status']}, not draft")
+    return res.data[0]
+
+
+def _load_user(sb, user_id: Optional[str]) -> dict:
+    """Return {id, email, full_name} for a user, or {} if not found."""
+    if not user_id:
+        return {}
+    res = (sb.table("app_users")
+           .select("id, email, full_name")
+           .eq("id", user_id).limit(1).execute())
+    return (res.data or [{}])[0]
+
+
+def _load_project(sb, project_id: str) -> dict:
+    res = (sb.table("projects").select("*")
+           .eq("id", project_id).limit(1).execute())
+    return (res.data or [{}])[0]
+
+
+@router.post("/{pay_app_id}/submit-for-approval", response_model=PayApp)
+def submit_for_approval(
+    pay_app_id: UUID,
+    user: CurrentUser = Depends(require_role("admin", "accountant")),
+):
+    """draft → pending_approval. Recalcs totals and notifies all admins."""
+    sb = get_service_client()
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "draft":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Pay app is {existing['status']}; only draft pay apps can be sent for approval.",
+        )
 
     save_pay_app_totals(str(pay_app_id))
+    now = datetime.now(timezone.utc).isoformat()
     res = sb.table("pay_apps").update({
-        "status": "submitted",
-        "submitted_at": datetime.now(timezone.utc).isoformat(),
-        "submitted_by": user.id,
+        "status": "pending_approval",
+        "submitted_for_approval_at": now,
+        "submitted_for_approval_by": user.id,
+        # Clear any prior rejection state — this is a fresh submission.
+        "rejection_reason": None,
+        "rejected_at": None,
+        "rejected_by": None,
     }).eq("id", str(pay_app_id)).execute()
-    audit.log(user.id, "pay_app", str(pay_app_id), "submitted",
-              before=existing.data[0], after=res.data[0])
-    return res.data[0]
+    pa = res.data[0]
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "submitted_for_approval",
+              before=existing, after=pa)
+
+    # Notify admins (best-effort; never break the workflow on email failure)
+    try:
+        project = _load_project(sb, pa["project_id"])
+        submitter = _load_user(sb, user.id) or {"id": user.id, "email": user.email,
+                                                "full_name": user.full_name}
+        email_svc.notify_submitted_for_approval(
+            pa=pa, project=project, submitter=submitter,
+        )
+    except Exception as e:
+        # Don't roll the state back; just log
+        print(f"[pay_apps] approval notification failed: {e}", flush=True)
+
+    return pa
+
+
+@router.post("/{pay_app_id}/approve", response_model=PayApp)
+def approve_pay_app(
+    pay_app_id: UUID,
+    user: CurrentUser = Depends(require_role("admin")),
+):
+    """pending_approval → approved. Notifies the submitter."""
+    sb = get_service_client()
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "pending_approval":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Pay app is {existing['status']}; only pending_approval pay apps can be approved.",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    res = sb.table("pay_apps").update({
+        "status": "approved",
+        "approved_at": now,
+        "approved_by": user.id,
+    }).eq("id", str(pay_app_id)).execute()
+    pa = res.data[0]
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "approved",
+              before=existing, after=pa)
+
+    try:
+        project = _load_project(sb, pa["project_id"])
+        submitter = _load_user(sb, pa.get("submitted_for_approval_by"))
+        approver = _load_user(sb, user.id) or {"id": user.id, "email": user.email,
+                                               "full_name": user.full_name}
+        if submitter:
+            email_svc.notify_approved(
+                pa=pa, project=project, submitter=submitter, approver=approver,
+            )
+    except Exception as e:
+        print(f"[pay_apps] approve notification failed: {e}", flush=True)
+
+    return pa
+
+
+@router.post("/{pay_app_id}/reject", response_model=PayApp)
+def reject_pay_app(
+    pay_app_id: UUID,
+    body: PayAppRejectBody,
+    user: CurrentUser = Depends(require_role("admin")),
+):
+    """pending_approval → draft. Stores the reason and notifies the submitter."""
+    sb = get_service_client()
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "pending_approval":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Pay app is {existing['status']}; only pending_approval pay apps can be rejected.",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    res = sb.table("pay_apps").update({
+        "status": "draft",
+        "rejected_at": now,
+        "rejected_by": user.id,
+        "rejection_reason": body.reason.strip(),
+    }).eq("id", str(pay_app_id)).execute()
+    pa = res.data[0]
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "rejected",
+              before=existing, after=pa,
+              metadata={"reason": body.reason.strip()})
+
+    try:
+        project = _load_project(sb, pa["project_id"])
+        submitter = _load_user(sb, pa.get("submitted_for_approval_by"))
+        approver = _load_user(sb, user.id) or {"id": user.id, "email": user.email,
+                                               "full_name": user.full_name}
+        if submitter:
+            email_svc.notify_rejected(
+                pa=pa, project=project, submitter=submitter, approver=approver,
+                reason=body.reason.strip(),
+            )
+    except Exception as e:
+        print(f"[pay_apps] reject notification failed: {e}", flush=True)
+
+    return pa
+
+
+@router.post("/{pay_app_id}/send-to-gc", response_model=PayApp)
+def send_pay_app_to_gc(
+    pay_app_id: UUID,
+    user: CurrentUser = Depends(require_role("admin", "accountant")),
+):
+    """approved → submitted.
+
+    If the project has gc_contact_email set: generate the G702 PDF and G703
+    Excel (if not already), build signed URLs, and email them to the GC.
+    Otherwise: just transition the state (the accountant is submitting via
+    the GC's portal manually) and record sent_to_gc_email=NULL.
+    """
+    from ..core.storage import signed_url as _signed_url
+    from ..core.excel_pay_app import generate_and_store_pay_app_excel
+    from ..core.pdf_pay_app import generate_and_store_pay_app_pdf
+
+    sb = get_service_client()
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "approved":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Pay app is {existing['status']}; approve it first.",
+        )
+
+    project = _load_project(sb, existing["project_id"])
+    gc_email = (project.get("gc_contact_email") or "").strip() or None
+
+    email_result = None
+    if gc_email:
+        # Regenerate Excel/PDF to make sure they reflect the latest totals
+        # (the approved version), then build signed URLs for Resend.
+        try:
+            excel_meta = generate_and_store_pay_app_excel(str(pay_app_id))
+            pdf_meta = generate_and_store_pay_app_pdf(str(pay_app_id))
+        except Exception as e:
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                f"Could not generate pay app files: {type(e).__name__}: {e}",
+            )
+
+        attachments = [
+            {
+                "filename": f"PayApp_{project.get('project_no','')}_{existing['period']}_G702.pdf",
+                "url": pdf_meta["download_url"],
+            },
+            {
+                "filename": f"PayApp_{project.get('project_no','')}_{existing['period']}_G703.xlsx",
+                "url": excel_meta["download_url"],
+            },
+        ]
+
+        sender = _load_user(sb, user.id) or {"id": user.id, "email": user.email,
+                                             "full_name": user.full_name}
+        try:
+            email_result = email_svc.email_pay_app_to_gc(
+                pa=existing, project=project, sender=sender,
+                attachments=attachments,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Could not send email to GC: {type(e).__name__}: {e}",
+            )
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_payload = {
+        "status": "submitted",
+        "submitted_at": now,                # keep legacy field in sync
+        "submitted_by": user.id,
+        "sent_to_gc_at": now,
+        "sent_to_gc_by": user.id,
+        "sent_to_gc_email": gc_email,       # NULL for manual-portal submissions
+    }
+    res = sb.table("pay_apps").update(update_payload).eq("id", str(pay_app_id)).execute()
+    pa = res.data[0]
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "sent_to_gc",
+              before=existing, after=pa,
+              metadata={
+                  "gc_email": gc_email,
+                  "manual": gc_email is None,
+                  "email_outbox_id": (email_result or {}).get("outbox_id"),
+                  "email_status": (email_result or {}).get("status"),
+              })
+    return pa
 
 
 @router.post("/{pay_app_id}/mark-paid", response_model=PayApp)
 def mark_pay_app_paid(
     pay_app_id: UUID,
-    paid_amount: Decimal,
+    body: PayAppMarkPaidBody,
     user: CurrentUser = Depends(require_role("admin", "accountant")),
 ):
-    """Transition submitted -> paid. Records the actual amount received."""
+    """submitted → paid. Records the actual amount received."""
     sb = get_service_client()
-    existing = sb.table("pay_apps").select("*").eq("id", str(pay_app_id)).limit(1).execute()
-    if not existing.data:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pay app not found")
-    if existing.data[0]["status"] != "submitted":
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "submitted":
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Only submitted pay apps can be marked paid")
     res = sb.table("pay_apps").update({
         "status": "paid",
         "paid_at": datetime.now(timezone.utc).isoformat(),
-        "paid_amount": str(paid_amount),
+        "paid_amount": str(body.paid_amount),
     }).eq("id", str(pay_app_id)).execute()
     audit.log(user.id, "pay_app", str(pay_app_id), "marked_paid",
-              before=existing.data[0], after=res.data[0],
-              metadata={"paid_amount": str(paid_amount)})
+              before=existing, after=res.data[0],
+              metadata={"paid_amount": str(body.paid_amount)})
     return res.data[0]
 
 

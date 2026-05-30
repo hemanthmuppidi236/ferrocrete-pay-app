@@ -48,6 +48,12 @@ def delete_object(bucket: str, path: str) -> None:
     sb.storage.from_(bucket).remove([path])
 
 
+def download_bytes(bucket: str, path: str) -> bytes:
+    """Download a stored object as bytes. Used for email attachments."""
+    sb = get_service_client()
+    return sb.storage.from_(bucket).download(path)
+
+
 def make_pay_app_excel_path(period: str, project_no: str, project_name: str) -> str:
     safe = _safe(project_name)
     return f"{period}/{project_no}_{safe}_-_{period}.xlsx"

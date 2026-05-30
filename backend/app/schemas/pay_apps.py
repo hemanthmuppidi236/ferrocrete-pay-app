@@ -32,11 +32,21 @@ class PayAppCreate(BaseModel):
     notes: Optional[str] = None
 
 
+PayAppStatusLiteral = Literal[
+    "draft",
+    "pending_approval",
+    "approved",
+    "submitted",
+    "paid",
+    "void",
+]
+
+
 class PayAppUpdate(BaseModel):
     """Edit pay app metadata. Billings updated via separate endpoint."""
     period_to: Optional[date] = None
     due_date: Optional[date] = None
-    status: Optional[Literal["draft", "submitted", "paid", "void"]] = None
+    status: Optional[PayAppStatusLiteral] = None
     paid_amount: Optional[Decimal] = None
     notes: Optional[str] = None
 
@@ -46,6 +56,16 @@ class PayAppBillingsUpdate(BaseModel):
     billings: List[BillingLine]
 
 
+class PayAppRejectBody(BaseModel):
+    """Body for POST /pay-apps/{id}/reject."""
+    reason: str = Field(..., min_length=1, max_length=2000)
+
+
+class PayAppMarkPaidBody(BaseModel):
+    """Body for POST /pay-apps/{id}/mark-paid (replaces query-param form)."""
+    paid_amount: Decimal
+
+
 class PayApp(BaseModel):
     id: UUID
     project_id: UUID
@@ -53,7 +73,7 @@ class PayApp(BaseModel):
     app_no: int
     period_to: date
     due_date: Optional[date] = None
-    status: Literal["draft", "submitted", "paid", "void"]
+    status: PayAppStatusLiteral
 
     # Computed totals
     original_contract: Decimal
@@ -66,8 +86,22 @@ class PayApp(BaseModel):
     current_payment_due: Decimal
     balance_to_finish: Decimal
 
+    # Workflow timestamps and actors
+    submitted_for_approval_at: Optional[datetime] = None
+    submitted_for_approval_by: Optional[UUID] = None
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[UUID] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by: Optional[UUID] = None
+    rejection_reason: Optional[str] = None
+    sent_to_gc_at: Optional[datetime] = None
+    sent_to_gc_by: Optional[UUID] = None
+    sent_to_gc_email: Optional[str] = None
+
+    # Legacy single-submit (preserved for already-submitted historical rows)
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None
+
     paid_at: Optional[datetime] = None
     paid_amount: Optional[Decimal] = None
 

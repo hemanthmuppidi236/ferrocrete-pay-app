@@ -28,13 +28,27 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000"   # comma-separated
 
-    # Email (Phase 1: just queue to outbox; Phase 2: wire SMTP/Resend)
+    # Email
+    # email_provider:
+    #   - "resend"       — send via Resend HTTP API (needs resend_api_key)
+    #   - "outbox_only"  — queue to email_outbox table but DON'T send
+    # When resend_api_key is unset the provider is forced to outbox_only
+    # regardless of this setting (fail-safe so we never silently drop emails).
     email_from: str = "noreply@ferrocretebuilders.com"
-    email_provider: str = "outbox_only"     # outbox_only | resend | sendgrid
+    email_provider: str = "resend"
     resend_api_key: Optional[str] = None
+
+    # Public URL of the frontend app; used to build deep links inside emails
+    # (e.g. "Review pay app: {app_url}/projects/.../pay-apps/...").
+    app_url: str = "http://localhost:3000"
 
     # Auth domain restriction (signups limited to this domain)
     allowed_email_domain: Optional[str] = None    # e.g., "ferrocretebuilders.com"
+
+    @property
+    def email_enabled(self) -> bool:
+        """True when emails should actually be sent (vs. queued only)."""
+        return self.email_provider == "resend" and bool(self.resend_api_key)
 
     @property
     def cors_origin_list(self) -> list[str]:
