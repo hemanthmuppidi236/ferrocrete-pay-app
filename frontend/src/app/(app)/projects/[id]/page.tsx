@@ -1143,13 +1143,23 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function PayAppStatusPill({ status }: { status: PayApp["status"] }) {
-  const map = {
-    draft: "pill-amber",
+  const cls: Record<PayApp["status"], string> = {
+    draft: "pill-muted",
+    pending_approval: "pill-amber",
+    approved: "pill-blue",
     submitted: "pill-blue",
     paid: "pill-green",
-    void: "pill-muted",
+    void: "pill-red",
   };
-  return <span className={`pill ${map[status]}`}>{status}</span>;
+  const label: Record<PayApp["status"], string> = {
+    draft: "draft",
+    pending_approval: "pending approval",
+    approved: "approved",
+    submitted: "sent to client",
+    paid: "paid",
+    void: "void",
+  };
+  return <span className={`pill ${cls[status]}`}>{label[status]}</span>;
 }
 
 function CoStatusPill({ status }: { status: ChangeOrderStatus }) {
