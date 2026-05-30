@@ -63,6 +63,14 @@ def calculate_pay_app_totals(pay_app_id: str) -> dict:
 
     total_completed = ZERO
     total_retention = ZERO
+    # Derive previous_certs directly from column D (previous_work). By the
+    # carry-forward invariant, column D of period N equals column G of period
+    # N-1 — so summing column D across lines (less retention) gives the
+    # cumulative prior earned-less-retention regardless of whether the prior
+    # pay app rows exist or what status they're in. This is correct for
+    # mid-project imports where prior apps may be drafts (or absent entirely).
+    previous_completed = ZERO
+    previous_retention = ZERO
 
     for b in bil_res.data:
         prev = Decimal(str(b.get("previous_work") or 0))
@@ -70,6 +78,7 @@ def calculate_pay_app_totals(pay_app_id: str) -> dict:
         stored = Decimal(str(b.get("materials_stored") or 0))
         line_g = prev + this_p + stored
         total_completed += line_g
+        previous_completed += prev
 
         # Retention applies unless it's a CO with has_retention=False
         applies_retention = True
@@ -79,6 +88,7 @@ def calculate_pay_app_totals(pay_app_id: str) -> dict:
                 applies_retention = False
         if applies_retention:
             total_retention += line_g * retention_rate
+            previous_retention += prev * retention_rate
 
     # Quantize to cents
     total_completed = total_completed.quantize(Decimal("0.01"))
@@ -86,21 +96,7 @@ def calculate_pay_app_totals(pay_app_id: str) -> dict:
 
     earned_less_ret = (total_completed - total_retention).quantize(Decimal("0.01"))
 
-    # Previous certificates: sum of (earned_less_retention) for all PRIOR pay apps
-    # of this project that have status submitted or paid.
-    prior_res = (
-        sb.table("pay_apps")
-        .select("earned_less_retention, app_no, status")
-        .eq("project_id", project_id)
-        .lt("app_no", pa["app_no"])
-        .in_("status", ["submitted", "paid"])
-        .execute()
-    )
-    previous_certs = sum(
-        (Decimal(str(p["earned_less_retention"] or 0)) for p in prior_res.data),
-        Decimal(0),
-    )
-    previous_certs = previous_certs.quantize(Decimal("0.01"))
+    previous_certs = (previous_completed - previous_retention).quantize(Decimal("0.01"))
 
     current_pay_due = (earned_less_ret - previous_certs).quantize(Decimal("0.01"))
 
