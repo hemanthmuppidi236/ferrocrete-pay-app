@@ -99,7 +99,13 @@ export interface ChangeOrder {
 
 // ─── Pay App ────────────────────────────────────────────────────
 
-export type PayAppStatus = "draft" | "submitted" | "paid" | "void";
+export type PayAppStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "submitted"
+  | "paid"
+  | "void";
 
 export interface BillingLine {
   id?: UUID;
@@ -129,8 +135,22 @@ export interface PayApp {
   current_payment_due: Money;
   balance_to_finish: Money;
 
+  // Workflow timestamps + actors
+  submitted_for_approval_at: ISODateTime | null;
+  submitted_for_approval_by: UUID | null;
+  approved_at: ISODateTime | null;
+  approved_by: UUID | null;
+  rejected_at: ISODateTime | null;
+  rejected_by: UUID | null;
+  rejection_reason: string | null;
+  sent_to_gc_at: ISODateTime | null;
+  sent_to_gc_by: UUID | null;
+  sent_to_gc_email: string | null;
+
+  // Legacy single-submit (historical rows from before the approval flow)
   submitted_at: ISODateTime | null;
   submitted_by: UUID | null;
+
   paid_at: ISODateTime | null;
   paid_amount: Money | null;
 

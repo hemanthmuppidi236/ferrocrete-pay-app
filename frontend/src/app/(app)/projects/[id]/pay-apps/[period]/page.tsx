@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, formatApiError } from "@/lib/api";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 import type {
   Project,
   SOVLine,
@@ -10,6 +11,7 @@ import type {
   PayApp,
   PayAppDetail,
   BillingLine,
+  PayAppStatus,
 } from "@/lib/types";
 import {
   calculateG702Totals,
@@ -33,6 +35,10 @@ export default function PayAppDraftPage({
   params: { id: string; period: string };
 }) {
   const { id: projectId, period } = params;
+  const { user } = useCurrentUser();
+  const role = user?.role ?? "viewer";
+  const isAdmin = role === "admin";
+  const canMoveWorkflow = role === "admin" || role === "accountant";
 
   const [project, setProject] = useState<Project | null>(null);
   const [payApp, setPayApp] = useState<PayAppDetail | null>(null);
@@ -40,6 +46,12 @@ export default function PayAppDraftPage({
   const [cos, setCos] = useState<ChangeOrder[]>([]);
   const [prevCertificates, setPrevCertificates] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+
+  // Workflow action state
+  const [workflowBusy, setWorkflowBusy] = useState<"none" | "submit" | "approve" | "reject" | "send" | "paid">("none");
+  const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [rejectMode, setRejectMode] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
   // billings state — keyed by sov_line_id or co_id
   // Each holds previous/this_period/stored
@@ -111,7 +123,9 @@ export default function PayAppDraftPage({
     };
   }, [projectId, period]);
 
-  const isReadOnly = payApp?.status && payApp.status !== "draft";
+  // Billings are only editable while the pay app is in draft. Once it goes
+  // to the accountant → Raz → GC chain, the math is frozen.
+  const isReadOnly = !!(payApp?.status && payApp.status !== "draft");
 
   // ─── Live G702 calculation ─────────────────────────────────
   const totals = useMemo(() => {
@@ -215,6 +229,118 @@ export default function PayAppDraftPage({
     }
   }
 
+  // ─── Workflow transitions ──────────────────────────────────
+  // Each helper hits the matching backend endpoint, refreshes the local
+  // payApp state, and surfaces errors inline (not as alert()).
+
+  async function refreshPayApp() {
+    if (!payApp) return;
+    try {
+      const fresh = await api.get<PayAppDetail>(`/pay-apps/${payApp.id}`);
+      setPayApp(fresh);
+    } catch {
+      /* non-fatal — the in-place state remains */
+    }
+  }
+
+  async function flushPendingSave() {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      await saveBillings();
+    }
+  }
+
+  async function submitForApproval() {
+    if (!payApp) return;
+    setWorkflowError(null);
+    setWorkflowBusy("submit");
+    try {
+      await flushPendingSave();
+      await api.post(`/pay-apps/${payApp.id}/submit-for-approval`);
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
+  async function approve() {
+    if (!payApp) return;
+    setWorkflowError(null);
+    setWorkflowBusy("approve");
+    try {
+      await api.post(`/pay-apps/${payApp.id}/approve`);
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
+  async function reject() {
+    if (!payApp) return;
+    if (!rejectReason.trim()) {
+      setWorkflowError("Please write a reason — the accountant will see it.");
+      return;
+    }
+    setWorkflowError(null);
+    setWorkflowBusy("reject");
+    try {
+      await api.post(`/pay-apps/${payApp.id}/reject`, { reason: rejectReason.trim() });
+      setRejectMode(false);
+      setRejectReason("");
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
+  async function sendToGc() {
+    if (!payApp || !project) return;
+    const gcEmail = (project.gc_contact_email || "").trim();
+    const ok = gcEmail
+      ? confirm(`Send pay app #${payApp.app_no} to ${gcEmail}? Files will be attached.`)
+      : confirm("This project has no GC email on file. Mark as submitted (you'll send via their portal)?");
+    if (!ok) return;
+    setWorkflowError(null);
+    setWorkflowBusy("send");
+    try {
+      await api.post(`/pay-apps/${payApp.id}/send-to-gc`);
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
+  async function markPaid() {
+    if (!payApp) return;
+    const defaultAmount = parseFloat(payApp.current_payment_due || "0").toFixed(2);
+    const input = prompt("Amount received from the GC:", defaultAmount);
+    if (input === null) return;
+    const amt = parseFloat(input);
+    if (isNaN(amt) || amt <= 0) {
+      setWorkflowError("Enter a positive dollar amount.");
+      return;
+    }
+    setWorkflowError(null);
+    setWorkflowBusy("paid");
+    try {
+      await api.post(`/pay-apps/${payApp.id}/mark-paid`, { paid_amount: amt.toFixed(2) });
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
   if (error) {
     return (
       <div className="page-content">
@@ -290,41 +416,8 @@ export default function PayAppDraftPage({
 
       <div className="body-grid">
         <div className="sov-area">
-          {/* Note banner */}
-          <div
-            className="glass"
-            style={{
-              padding: "13px 18px",
-              marginBottom: 24,
-              borderLeft: isReadOnly
-                ? "3px solid var(--status-blue)"
-                : "3px solid var(--accent)",
-              borderRadius: "var(--radius)",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 14,
-                color: "var(--text-body)",
-                fontFamily: "EB Garamond, serif",
-              }}
-            >
-              {isReadOnly ? (
-                <>
-                  <b style={{ color: "var(--status-blue)" }}>
-                    {payApp.status.toUpperCase()} ·
-                  </b>{" "}
-                  Read-only.
-                </>
-              ) : (
-                <>
-                  <b style={{ color: "var(--ferrocrete-red)" }}>Tip · </b>
-                  Type into <b>This period</b> to bill this month. The G702
-                  sidebar updates live.
-                </>
-              )}
-            </div>
-          </div>
+          {/* Status / rejection banner */}
+          <StatusBanner payApp={payApp} />
 
           {/* SOV section */}
           <SovTable
@@ -407,6 +500,26 @@ export default function PayAppDraftPage({
                 retention &amp; previous applications
               </div>
             </div>
+
+            {/* ───── Workflow action panel ───── */}
+            <WorkflowActions
+              payApp={payApp}
+              project={project}
+              isAdmin={isAdmin}
+              canMoveWorkflow={canMoveWorkflow}
+              busy={workflowBusy}
+              error={workflowError}
+              rejectMode={rejectMode}
+              rejectReason={rejectReason}
+              onSubmitForApproval={submitForApproval}
+              onApprove={approve}
+              onStartReject={() => { setWorkflowError(null); setRejectMode(true); }}
+              onCancelReject={() => { setRejectMode(false); setRejectReason(""); setWorkflowError(null); }}
+              onChangeRejectReason={setRejectReason}
+              onConfirmReject={reject}
+              onSendToGc={sendToGc}
+              onMarkPaid={markPaid}
+            />
 
             <div className="preview-actions">
               <button
@@ -624,4 +737,239 @@ function SovTable({
 function numOrZero(s: string): string {
   const n = parseFloat(s);
   return isNaN(n) ? "0" : String(n);
+}
+
+
+// ─── Status banner (top of pay-app page) ────────────────────────
+// Replaces the old generic "SUBMITTED · Read-only" tag with status-aware
+// copy: shows who submitted/approved/rejected, when, and any rejection
+// reason coming back to a re-opened draft.
+
+function StatusBanner({ payApp }: { payApp: PayApp }) {
+  const status = payApp.status;
+  const wasRejected = status === "draft" && !!payApp.rejection_reason && !!payApp.rejected_at;
+
+  let accent = "var(--accent)";
+  let label = "";
+  let body: React.ReactNode = null;
+
+  if (wasRejected) {
+    accent = "var(--ferrocrete-red)";
+    label = "Sent back for revision";
+    body = (
+      <>
+        Admin asked for changes:
+        <blockquote style={{
+          borderLeft: "3px solid var(--ferrocrete-red)", margin: "8px 0 4px",
+          padding: "4px 12px", background: "rgba(213,59,52,0.06)",
+          whiteSpace: "pre-wrap", fontFamily: "EB Garamond, serif",
+        }}>{payApp.rejection_reason}</blockquote>
+        Make the changes below and resubmit.
+      </>
+    );
+  } else if (status === "draft") {
+    label = "Draft";
+    body = <>Type into <b>This period</b> to bill this month. The G702 sidebar updates live.</>;
+  } else if (status === "pending_approval") {
+    accent = "var(--status-amber)";
+    label = "Pending approval";
+    body = <>Submitted for admin approval{payApp.submitted_for_approval_at ? ` on ${fmtDate(payApp.submitted_for_approval_at)}` : ""}. Read-only until approved or sent back.</>;
+  } else if (status === "approved") {
+    accent = "var(--status-blue)";
+    label = "Approved";
+    body = <>Approved{payApp.approved_at ? ` on ${fmtDate(payApp.approved_at)}` : ""} — ready to send to the GC.</>;
+  } else if (status === "submitted") {
+    accent = "var(--status-blue)";
+    label = "Sent to client";
+    const where = payApp.sent_to_gc_email ? ` via ${payApp.sent_to_gc_email}` : " (submitted manually)";
+    body = <>Sent{payApp.sent_to_gc_at ? ` on ${fmtDate(payApp.sent_to_gc_at)}` : ""}{where}.</>;
+  } else if (status === "paid") {
+    accent = "var(--status-green)";
+    label = "Paid";
+    body = <>Paid{payApp.paid_at ? ` on ${fmtDate(payApp.paid_at)}` : ""}{payApp.paid_amount ? ` — ${fmtMoney(parseFloat(payApp.paid_amount))}` : ""}.</>;
+  } else if (status === "void") {
+    accent = "var(--ferrocrete-red)";
+    label = "Void";
+    body = <>This pay app has been voided.</>;
+  }
+
+  return (
+    <div
+      className="glass"
+      style={{
+        padding: "13px 18px",
+        marginBottom: 24,
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: "var(--radius)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          color: "var(--text-body)",
+          fontFamily: "EB Garamond, serif",
+        }}
+      >
+        <b style={{ color: accent }}>{label} · </b>
+        {body}
+      </div>
+    </div>
+  );
+}
+
+function fmtDate(iso: string): string {
+  // Strip time + tz for the banner; full datetime is too noisy.
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return iso;
+  }
+}
+
+
+// ─── Workflow actions (in the G702 sidebar) ────────────────────
+// Status-dependent buttons that move the pay app through the lifecycle.
+// Hidden entirely when the current user has no permission to act.
+
+function WorkflowActions({
+  payApp, project,
+  isAdmin, canMoveWorkflow,
+  busy, error,
+  rejectMode, rejectReason,
+  onSubmitForApproval, onApprove, onStartReject, onCancelReject,
+  onChangeRejectReason, onConfirmReject, onSendToGc, onMarkPaid,
+}: {
+  payApp: PayApp;
+  project: Project;
+  isAdmin: boolean;
+  canMoveWorkflow: boolean;
+  busy: "none" | "submit" | "approve" | "reject" | "send" | "paid";
+  error: string | null;
+  rejectMode: boolean;
+  rejectReason: string;
+  onSubmitForApproval: () => void;
+  onApprove: () => void;
+  onStartReject: () => void;
+  onCancelReject: () => void;
+  onChangeRejectReason: (s: string) => void;
+  onConfirmReject: () => void;
+  onSendToGc: () => void;
+  onMarkPaid: () => void;
+}) {
+  const status: PayAppStatus = payApp.status;
+  const gcEmail = (project.gc_contact_email || "").trim();
+
+  // Decide which buttons (if any) belong in the panel.
+  let panel: React.ReactNode = null;
+
+  if (status === "draft" && canMoveWorkflow) {
+    panel = (
+      <>
+        <button
+          className="btn dash-btn-red"
+          onClick={onSubmitForApproval}
+          disabled={busy !== "none"}
+          style={{ width: "100%" }}
+        >
+          {busy === "submit" ? "Sending…" : "Send for approval →"}
+        </button>
+        <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 8,
+                      fontFamily: "EB Garamond, serif" }}>
+          Admins will be notified by email to review and approve.
+        </div>
+      </>
+    );
+  } else if (status === "pending_approval" && isAdmin) {
+    panel = rejectMode ? (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <label className="form-label">Reason for rejection</label>
+        <textarea
+          className="input"
+          value={rejectReason}
+          onChange={e => onChangeRejectReason(e.target.value)}
+          rows={4}
+          placeholder="What needs to change?"
+          style={{ fontFamily: "EB Garamond, serif", fontSize: 14, resize: "vertical" }}
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onCancelReject}
+                  disabled={busy !== "none"} style={{ flex: 1 }}>
+            Cancel
+          </button>
+          <button className="btn dash-btn-red" onClick={onConfirmReject}
+                  disabled={busy !== "none" || !rejectReason.trim()} style={{ flex: 1 }}>
+            {busy === "reject" ? "Sending…" : "Send back"}
+          </button>
+        </div>
+      </div>
+    ) : (
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn btn-ghost" onClick={onStartReject}
+                disabled={busy !== "none"} style={{ flex: 1 }}>
+          Reject
+        </button>
+        <button className="btn btn-accent" onClick={onApprove}
+                disabled={busy !== "none"} style={{ flex: 1 }}>
+          {busy === "approve" ? "Approving…" : "Approve ✓"}
+        </button>
+      </div>
+    );
+  } else if (status === "approved" && canMoveWorkflow) {
+    panel = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <button
+          className="btn btn-accent"
+          onClick={onSendToGc}
+          disabled={busy !== "none"}
+          style={{ width: "100%" }}
+        >
+          {busy === "send"
+            ? "Sending…"
+            : gcEmail
+              ? `Email to GC (${gcEmail})`
+              : "Mark as submitted (manual)"}
+        </button>
+        {!gcEmail && (
+          <div style={{ fontSize: 12, color: "var(--status-amber)",
+                        fontFamily: "EB Garamond, serif" }}>
+            ⚠ No GC email on file for this project — submit through their portal
+            using the downloaded files, then click above to mark it sent.
+          </div>
+        )}
+      </div>
+    );
+  } else if (status === "submitted" && canMoveWorkflow) {
+    panel = (
+      <button
+        className="btn btn-accent"
+        onClick={onMarkPaid}
+        disabled={busy !== "none"}
+        style={{ width: "100%" }}
+      >
+        {busy === "paid" ? "Recording…" : "Mark as paid"}
+      </button>
+    );
+  } else {
+    return null;    // nothing to do for this user/status combo
+  }
+
+  return (
+    <div style={{
+      marginTop: 18, paddingTop: 16,
+      borderTop: "1px solid var(--border)",
+      display: "flex", flexDirection: "column", gap: 6,
+    }}>
+      {panel}
+      {error && (
+        <div style={{
+          fontSize: 13, color: "var(--ferrocrete-red)",
+          fontFamily: "EB Garamond, serif", marginTop: 6,
+        }}>
+          {error}
+        </div>
+      )}
+    </div>
+  );
 }

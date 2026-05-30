@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { fmtMoneyShort } from "@/lib/payAppMath";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 import type { PayAppStatus, Project, UUID, Money, Period } from "@/lib/types";
 import {
   PeriodType,
@@ -34,17 +35,24 @@ interface DashboardPayApp {
   project_name: string;
   project_no: string;
   gc_company: string;
+  gc_email_configured: boolean;
   period: Period;
   app_no: number;
   status: PayAppStatus;
   current_payment_due: Money;
   percent_complete: number;
+  due_date: string | null;                  // ISO date
+  submitted_for_approval_at: string | null; // ISO datetime
   updated_at: string | null;
 }
 
 interface DashboardStats {
   open_drafts_count: number;
   open_drafts_projects: number;
+  pending_approval_count: number;
+  pending_approval_total: number;
+  approved_count: number;
+  approved_total: number;
   submitted_count: number;
   submitted_outstanding: number;
   billed_total: number;
@@ -76,19 +84,61 @@ function fmtMoneyCompact(n: number): string {
 
 function statusPillClass(status: PayAppStatus): string {
   switch (status) {
-    case "draft": return "pill-amber";
-    case "submitted": return "pill-blue";
+    case "draft": return "pill-muted";
+    case "pending_approval": return "pill-amber";   // action: admin
+    case "approved": return "pill-blue";            // action: accountant
+    case "submitted": return "pill-blue";           // out to client
     case "paid": return "pill-green";
-    case "void": return "pill-muted";
+    case "void": return "pill-red";
     default: return "pill-muted";
   }
 }
 
+function statusLabel(status: PayAppStatus): string {
+  switch (status) {
+    case "draft": return "Draft";
+    case "pending_approval": return "Pending approval";
+    case "approved": return "Approved";
+    case "submitted": return "Sent to client";
+    case "paid": return "Paid";
+    case "void": return "Void";
+    default: return status;
+  }
+}
+
+/** ISO date → short display like "May 31" (current year omitted). */
+function fmtDeadline(iso: string | null): string {
+  if (!iso) return "—";
+  const [yyyy, mm, dd] = iso.split("-");
+  const idx = parseInt(mm, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx > 11) return iso;
+  const year = parseInt(yyyy, 10);
+  const now = new Date();
+  const sameYear = year === now.getFullYear();
+  return sameYear
+    ? `${MONTH_SHORTS[idx]} ${parseInt(dd, 10)}`
+    : `${MONTH_SHORTS[idx]} ${parseInt(dd, 10)}, ${year}`;
+}
+
+/** Compare a YYYY-MM-DD date to today: -1 past, 0 within 3 days, 1 ok. */
+function deadlineTone(iso: string | null): "past" | "soon" | "ok" | null {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const daysLeft = Math.floor((d.getTime() - now.getTime()) / 86_400_000);
+  if (daysLeft < 0) return "past";
+  if (daysLeft <= 3) return "soon";
+  return "ok";
+}
+
 // Inline style fallbacks for layout-critical grid (belt-and-suspenders against
 // any CSS load order or scoping surprises).
+// Added a Deadline column between Status and Current due.
 const TABLE_GRID_STYLE: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "90px minmax(0, 1fr) 60px 100px 130px 90px 80px",
+  gridTemplateColumns: "90px minmax(0, 1fr) 60px 130px 130px 110px 80px 80px",
   alignItems: "center",
   gap: "0.75rem",
 };
@@ -96,6 +146,10 @@ const TABLE_GRID_STYLE: CSSProperties = {
 // ─── Component ──────────────────────────────────────────────────
 
 export default function PayAppsDashboard() {
+  const { user } = useCurrentUser();
+  const isAdmin = user?.role === "admin";
+  const isAccountant = user?.role === "accountant";
+
   const [periodType, setPeriodType] = useState<PeriodType>("month");
   const [periodValue, setPeriodValue] = useState<string>("");
   const [customStart, setCustomStart] = useState<string>("");
@@ -209,6 +263,17 @@ export default function PayAppsDashboard() {
       </div>
 
       <div className="page-content">
+        {/* ───── "Your court" section — role-aware queue at the top ───── */}
+        {!loading && !error && stats && (
+          <YourCourtSection
+            isAdmin={isAdmin}
+            isAccountant={isAccountant}
+            stats={stats}
+            payApps={payApps}
+            onJumpToFilter={setStatusFilter}
+          />
+        )}
+
         {/* ───── Stat cards ───── */}
         <div className="dash-stat-grid">
           <DashStatCard
@@ -221,9 +286,16 @@ export default function PayAppsDashboard() {
             }
           />
           <DashStatCard
-            eyebrow="Submitted"
-            value={stats ? String(stats.submitted_count) : "—"}
-            subdetail={stats ? `${fmtMoneyCompact(stats.submitted_outstanding)} outstanding` : ""}
+            eyebrow={isAdmin ? "Awaiting your approval" : "Awaiting Raz's approval"}
+            value={stats ? String(stats.pending_approval_count) : "—"}
+            subdetail={
+              stats
+                ? stats.pending_approval_count > 0
+                  ? `${fmtMoneyCompact(stats.pending_approval_total)} pending`
+                  : "Nothing to review"
+                : ""
+            }
+            highlighted={isAdmin && (stats?.pending_approval_count ?? 0) > 0}
           />
           <DashStatCard
             eyebrow={billedEyebrow(periodType, selectedOption)}
@@ -298,7 +370,9 @@ export default function PayAppsDashboard() {
           >
             <option value="all">All statuses</option>
             <option value="draft">Draft</option>
-            <option value="submitted">Submitted</option>
+            <option value="pending_approval">Pending approval</option>
+            <option value="approved">Approved</option>
+            <option value="submitted">Sent to client</option>
             <option value="paid">Paid</option>
             <option value="void">Void</option>
           </select>
@@ -322,8 +396,9 @@ export default function PayAppsDashboard() {
             <div className="dash-th">Project / GC</div>
             <div className="dash-th" style={{ textAlign: "center" }}>App</div>
             <div className="dash-th" style={{ textAlign: "center" }}>Status</div>
-            <div className="dash-th" style={{ textAlign: "right" }}>Current due</div>
-            <div className="dash-th" style={{ textAlign: "right" }}>% Complete</div>
+            <div className="dash-th" style={{ textAlign: "right" }}>Amount billed</div>
+            <div className="dash-th" style={{ textAlign: "center" }}>Deadline</div>
+            <div className="dash-th" style={{ textAlign: "right" }}>% Done</div>
             <div className="dash-th" />
           </div>
 
@@ -332,36 +407,50 @@ export default function PayAppsDashboard() {
           {!loading && !error && payApps.length === 0 && (
             <div className="dash-table-empty">No pay apps match these filters.</div>
           )}
-          {!loading && !error && payApps.map(pa => (
-            <div key={pa.id} className="dash-table-row" style={TABLE_GRID_STYLE}>
-              <div className="dash-td-period">{fmtPeriodLabel(pa.period)}</div>
-              <div className="dash-td-project">
-                <div className="dash-project-line">
-                  <span className="dash-project-name">{pa.project_name}</span>
-                  {pa.project_no && <span className="dash-project-no"> · {pa.project_no}</span>}
+          {!loading && !error && payApps.map(pa => {
+            const tone = deadlineTone(pa.due_date);
+            const deadlineColor =
+              tone === "past" ? "var(--status-red)"
+              : tone === "soon" ? "var(--status-amber)"
+              : "var(--text-muted)";
+            return (
+              <div key={pa.id} className="dash-table-row" style={TABLE_GRID_STYLE}>
+                <div className="dash-td-period">{fmtPeriodLabel(pa.period)}</div>
+                <div className="dash-td-project">
+                  <div className="dash-project-line">
+                    <span className="dash-project-name">{pa.project_name}</span>
+                    {pa.project_no && <span className="dash-project-no"> · {pa.project_no}</span>}
+                  </div>
+                  <div className="dash-gc-name">{pa.gc_company || "No GC info"}</div>
                 </div>
-                <div className="dash-gc-name">{pa.gc_company || "No GC info"}</div>
-              </div>
-              <div className="dash-td-app" style={{ textAlign: "center" }}>#{pa.app_no}</div>
-              <div className="dash-td-status" style={{ textAlign: "center" }}>
-                <span className={`pill ${statusPillClass(pa.status)}`}>{pa.status}</span>
-              </div>
-              <div className="dash-td-due" style={{ textAlign: "right" }}>
-                {fmtMoneyShort(pa.current_payment_due)}
-              </div>
-              <div className="dash-td-pct" style={{ textAlign: "right" }}>
-                {(pa.percent_complete ?? 0).toFixed(1)}%
-              </div>
-              <div className="dash-td-link" style={{ textAlign: "right" }}>
-                <Link
-                  href={`/projects/${pa.project_id}/pay-apps/${pa.period}`}
-                  className="dash-open-link"
+                <div className="dash-td-app" style={{ textAlign: "center" }}>#{pa.app_no}</div>
+                <div className="dash-td-status" style={{ textAlign: "center" }}>
+                  <span className={`pill ${statusPillClass(pa.status)}`}>{statusLabel(pa.status)}</span>
+                </div>
+                <div className="dash-td-due" style={{ textAlign: "right" }}>
+                  {fmtMoneyShort(pa.current_payment_due)}
+                </div>
+                <div
+                  className="dash-td-due"
+                  style={{ textAlign: "center", color: deadlineColor, fontWeight: tone === "past" ? 600 : 500 }}
+                  title={pa.due_date ? `Submit by ${pa.due_date}` : "No deadline set"}
                 >
-                  Open →
-                </Link>
+                  {fmtDeadline(pa.due_date)}
+                </div>
+                <div className="dash-td-pct" style={{ textAlign: "right" }}>
+                  {(pa.percent_complete ?? 0).toFixed(1)}%
+                </div>
+                <div className="dash-td-link" style={{ textAlign: "right" }}>
+                  <Link
+                    href={`/projects/${pa.project_id}/pay-apps/${pa.period}`}
+                    className="dash-open-link"
+                  >
+                    Open →
+                  </Link>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </>
@@ -386,6 +475,107 @@ function DashStatCard({
       <div className="dash-stat-eyebrow">{eyebrow}</div>
       <div className="dash-stat-value">{value}</div>
       <div className="dash-stat-subdetail">{subdetail}</div>
+    </div>
+  );
+}
+
+
+// ─── "Your court" queue ──────────────────────────────────────────
+// Role-aware top-of-dashboard reminder. Admin sees pending_approval queue;
+// accountant sees approved queue. PEs (and empty queues) see nothing.
+
+function YourCourtSection({
+  isAdmin,
+  isAccountant,
+  stats,
+  payApps,
+  onJumpToFilter,
+}: {
+  isAdmin: boolean;
+  isAccountant: boolean;
+  stats: DashboardStats;
+  payApps: DashboardPayApp[];
+  onJumpToFilter: (status: string) => void;
+}) {
+  let title = "";
+  let statusKey: PayAppStatus | null = null;
+  let count = 0;
+  let totalAmount = 0;
+  let helpText = "";
+
+  if (isAdmin && stats.pending_approval_count > 0) {
+    title = "Awaiting your approval";
+    statusKey = "pending_approval";
+    count = stats.pending_approval_count;
+    totalAmount = stats.pending_approval_total;
+    helpText = "Pay apps your accountants have submitted for your review.";
+  } else if (isAccountant && stats.approved_count > 0) {
+    title = "Ready to send to client";
+    statusKey = "approved";
+    count = stats.approved_count;
+    totalAmount = stats.approved_total;
+    helpText = "Approved by Raz — send to the GC or submit via their portal.";
+  } else {
+    return null;
+  }
+
+  // Pull just the items in this status from the loaded set, newest first.
+  const items = payApps
+    .filter(p => p.status === statusKey)
+    .slice(0, 5);
+
+  return (
+    <div
+      className="glass"
+      style={{
+        padding: "18px 22px 16px",
+        marginBottom: 24,
+        borderLeft: "3px solid var(--accent)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div className="dash-stat-eyebrow" style={{ color: "var(--accent-text)" }}>
+            {title} ({count})
+          </div>
+          <div style={{
+            fontFamily: "EB Garamond, serif", fontSize: 14, color: "var(--text-muted)", marginTop: 4,
+          }}>
+            {helpText}
+            {totalAmount > 0 && <>  ·  <b>{fmtMoneyCompact(totalAmount)}</b> total</>}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="dash-chip"
+          onClick={() => statusKey && onJumpToFilter(statusKey)}
+          title="Filter the table below to just these"
+        >
+          See all →
+        </button>
+      </div>
+
+      {items.length > 0 && (
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+          {items.map(pa => (
+            <Link
+              key={pa.id}
+              href={`/projects/${pa.project_id}/pay-apps/${pa.period}`}
+              className="pay-app-row"
+              style={{ textDecoration: "none" }}
+            >
+              <div className="pay-app-row-left">
+                <span className="pay-app-row-period">{pa.project_name}</span>
+                <span className="pay-app-row-app-no">App #{pa.app_no} · {pa.period}</span>
+              </div>
+              <div className="pay-app-row-right">
+                <span className={`pill ${statusPillClass(pa.status)}`}>{statusLabel(pa.status)}</span>
+                <span className="pay-app-row-amount">{fmtMoneyShort(pa.current_payment_due)}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
