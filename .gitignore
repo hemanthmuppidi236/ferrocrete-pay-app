@@ -21,6 +21,10 @@ env/
 *.swp
 .claude/
 
+# Secrets
+scripts/client_secret.json
+scripts/*_secret*.json
+
 # OS
 .DS_Store
 Thumbs.db
