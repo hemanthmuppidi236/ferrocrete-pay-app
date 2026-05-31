@@ -2,31 +2,23 @@
 Email sending + outbox.
 
 Every outgoing message is recorded in the `email_outbox` table for an audit
-trail. When SMTP is configured (EMAIL_PROVIDER=smtp and SMTP_USER / SMTP_PASSWORD
-set) the message is also sent via SMTP and the outbox row is marked 'sent' or
-'failed'. Otherwise the row stays 'pending' and can be sent later once
-credentials are wired up.
+trail. When Resend is configured (RESEND_API_KEY set and EMAIL_PROVIDER=resend)
+the message is also sent via the Resend HTTP API and the outbox row is marked
+'sent' or 'failed'. Otherwise the row stays 'pending' and can be sent later
+once a real provider is wired up.
 
-Attachments are passed by signed URL — we fetch the bytes via httpx and embed
-them as MIME parts in the outgoing message. This keeps the API contract clean
-(callers don't need to know about the underlying transport) and works whether
-the files live in Supabase Storage, S3, or anywhere else reachable by URL.
+Attachments are passed by signed URL — Resend fetches them itself, so we don't
+have to base64-encode large files in the API request body.
 
 This module is intentionally synchronous (no background worker). Volume is low
-(a handful of notifications per pay app) and ~1s send latency is fine.
-
-For Google Workspace: use smtp.gmail.com:587 with STARTTLS, authenticate as a
-real Workspace user with an "App Password" (generate one at
-https://myaccount.google.com/apppasswords after enabling 2-Step Verification).
+(a handful of notifications per pay app) and a 500ms send latency is fine.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-import smtplib
 from datetime import datetime, timezone
-from email.message import EmailMessage
-from email.utils import formataddr
 from typing import Optional
 
 import httpx
@@ -36,6 +28,8 @@ from .supabase_client import get_service_client
 
 
 log = logging.getLogger("ferrocrete.email")
+
+_RESEND_URL = "https://api.resend.com/emails"
 
 
 def _admin_emails(exclude: Optional[set[str]] = None) -> list[str]:
@@ -115,15 +109,39 @@ def send_email(
         log.info("email_enabled=False — queued only (outbox_id=%s, subject=%r)",
                  outbox_id, subject)
         return {"outbox_id": outbox_id, "status": "pending",
-                "error": "SMTP credentials not configured"}
+                "error": "email_provider is outbox_only"}
 
     try:
-        msg = _build_message(
-            to=to, cc=cc, subject=subject,
-            body_html=body_html, body_text=body_text,
-            attachments=attachments,
-        )
-        _send_via_smtp(msg, all_recipients=to + cc)
+        body = {
+            "from": settings.email_from,
+            "to": to,
+            "subject": subject,
+            "html": body_html,
+        }
+        if cc:
+            body["cc"] = cc
+        if body_text:
+            body["text"] = body_text
+        if attachments:
+            # Resend accepts {"filename": ..., "path": URL} for URL fetch
+            body["attachments"] = [
+                {"filename": a["filename"], "path": a["url"]}
+                for a in attachments if a.get("url")
+            ]
+
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(
+                _RESEND_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.resend_api_key}",
+                    "Content-Type": "application/json",
+                },
+                content=json.dumps(body),
+            )
+        if resp.status_code >= 300:
+            raise RuntimeError(
+                f"Resend returned {resp.status_code}: {resp.text[:300]}"
+            )
 
         sb.table("email_outbox").update({
             "status": "sent",
@@ -133,7 +151,7 @@ def send_email(
 
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
-        log.error("SMTP send failed (outbox_id=%s): %s", outbox_id, err)
+        log.error("Resend send failed (outbox_id=%s): %s", outbox_id, err)
         try:
             sb.table("email_outbox").update({
                 "status": "failed",
@@ -143,85 +161,6 @@ def send_email(
         except Exception:
             pass
         return {"outbox_id": outbox_id, "status": "failed", "error": err}
-
-
-def _build_message(
-    *,
-    to: list[str],
-    cc: list[str],
-    subject: str,
-    body_html: str,
-    body_text: Optional[str],
-    attachments: Optional[list[dict]],
-) -> EmailMessage:
-    """Build a MIME message with HTML body, optional text alternative, and
-    attachments fetched from URL. Used by both production SMTP send and tests."""
-    msg = EmailMessage()
-    msg["From"] = formataddr(("Ferrocrete Builders", settings.email_from))
-    msg["To"] = ", ".join(to)
-    if cc:
-        msg["Cc"] = ", ".join(cc)
-    msg["Subject"] = subject
-
-    # Text part is the body of the message; HTML is the alternative. Without
-    # a text part, some spam filters score the message higher.
-    fallback_text = body_text or _html_to_plaintext(body_html)
-    msg.set_content(fallback_text)
-    msg.add_alternative(body_html, subtype="html")
-
-    if attachments:
-        with httpx.Client(timeout=60) as client:
-            for a in attachments:
-                url = a.get("url")
-                filename = a.get("filename") or "attachment.bin"
-                if not url:
-                    continue
-                resp = client.get(url)
-                if resp.status_code >= 300:
-                    raise RuntimeError(
-                        f"Could not fetch attachment {filename!r} "
-                        f"(HTTP {resp.status_code}): {resp.text[:200]}"
-                    )
-                mime_type = resp.headers.get("content-type", "application/octet-stream")
-                maintype, _, subtype = mime_type.partition("/")
-                if not subtype:
-                    maintype, subtype = "application", "octet-stream"
-                msg.add_attachment(
-                    resp.content,
-                    maintype=maintype,
-                    subtype=subtype,
-                    filename=filename,
-                )
-    return msg
-
-
-def _send_via_smtp(msg: EmailMessage, *, all_recipients: list[str]) -> None:
-    """Open an SMTP connection, STARTTLS, authenticate, and send."""
-    host = settings.smtp_host
-    port = settings.smtp_port
-    with smtplib.SMTP(host, port, timeout=30) as server:
-        server.ehlo()
-        if settings.smtp_use_starttls:
-            server.starttls()
-            server.ehlo()
-        server.login(settings.smtp_user, settings.smtp_password)
-        # send_message handles To/Cc/Bcc header parsing; we pass to_addrs
-        # explicitly so Bcc-style recipients (if ever added) still get the
-        # message even though they're not in the headers.
-        server.send_message(msg, to_addrs=all_recipients)
-
-
-def _html_to_plaintext(html: str) -> str:
-    """Very rough HTML → text fallback for the text/plain alternative.
-    Not a real parser — just strips tags so the recipient's text-only client
-    sees readable copy. Real markup happens in the HTML part."""
-    import re
-    text = re.sub(r"<br\s*/?>", "\n", html, flags=re.I)
-    text = re.sub(r"</p>", "\n\n", text, flags=re.I)
-    text = re.sub(r"<[^>]+>", "", text)
-    # Collapse whitespace
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════

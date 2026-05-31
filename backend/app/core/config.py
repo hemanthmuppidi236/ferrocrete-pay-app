@@ -30,19 +30,13 @@ class Settings(BaseSettings):
 
     # Email
     # email_provider:
-    #   - "smtp"         — send via SMTP (Google Workspace, etc.); needs smtp_user + smtp_password
+    #   - "resend"       — send via Resend HTTP API (needs resend_api_key)
     #   - "outbox_only"  — queue to email_outbox table but DON'T send
-    # When credentials are missing the provider is forced to outbox_only
+    # When resend_api_key is unset the provider is forced to outbox_only
     # regardless of this setting (fail-safe so we never silently drop emails).
     email_from: str = "noreply@ferrocretebuilders.com"
-    email_provider: str = "smtp"
-
-    # SMTP relay (Google Workspace: smtp.gmail.com:587 with an app password).
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 587
-    smtp_user: Optional[str] = None        # full email address of the sending mailbox
-    smtp_password: Optional[str] = None    # app password, NOT the user's login password
-    smtp_use_starttls: bool = True
+    email_provider: str = "resend"
+    resend_api_key: Optional[str] = None
 
     # Public URL of the frontend app; used to build deep links inside emails
     # (e.g. "Review pay app: {app_url}/projects/.../pay-apps/...").
@@ -54,9 +48,7 @@ class Settings(BaseSettings):
     @property
     def email_enabled(self) -> bool:
         """True when emails should actually be sent (vs. queued only)."""
-        if self.email_provider == "smtp":
-            return bool(self.smtp_user and self.smtp_password)
-        return False
+        return self.email_provider == "resend" and bool(self.resend_api_key)
 
     @property
     def cors_origin_list(self) -> list[str]:
