@@ -2,23 +2,33 @@
 Email sending + outbox.
 
 Every outgoing message is recorded in the `email_outbox` table for an audit
-trail. When Resend is configured (RESEND_API_KEY set and EMAIL_PROVIDER=resend)
-the message is also sent via the Resend HTTP API and the outbox row is marked
-'sent' or 'failed'. Otherwise the row stays 'pending' and can be sent later
-once a real provider is wired up.
+trail. When Gmail API is configured (EMAIL_PROVIDER=gmail_api and the four
+GMAIL_OAUTH_* env vars set) the message is also sent via the Gmail HTTP API
+and the outbox row is marked 'sent' or 'failed'. Otherwise the row stays
+'pending' and can be sent later once credentials are wired up.
 
-Attachments are passed by signed URL — Resend fetches them itself, so we don't
-have to base64-encode large files in the API request body.
+Why Gmail API instead of SMTP:
+  - Render blocks outbound SMTP (ports 25/465/587) on all plans to prevent
+    abuse. Gmail's HTTP API uses port 443 (always allowed).
+  - We already have Google Workspace for @ferrocretebuilders.com mail.
+  - OAuth single-user mode means no Workspace admin involvement —
+    one user clicks "Allow" once, and the refresh token works indefinitely.
 
-This module is intentionally synchronous (no background worker). Volume is low
-(a handful of notifications per pay app) and a 500ms send latency is fine.
+Attachments are passed by signed URL — we fetch the bytes via httpx and
+embed them as MIME parts in the outgoing message. This keeps the API
+contract clean (callers don't need to know about the underlying transport).
+
+This module is intentionally synchronous (no background worker). Volume is
+low (a handful of notifications per pay app) and ~1s send latency is fine.
 """
 
 from __future__ import annotations
 
-import json
+import base64
 import logging
 from datetime import datetime, timezone
+from email.message import EmailMessage
+from email.utils import formataddr
 from typing import Optional
 
 import httpx
@@ -29,7 +39,8 @@ from .supabase_client import get_service_client
 
 log = logging.getLogger("ferrocrete.email")
 
-_RESEND_URL = "https://api.resend.com/emails"
+# Minimum scope: just send. We never read or modify the inbox.
+_GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
 
 def _admin_emails(exclude: Optional[set[str]] = None) -> list[str]:
@@ -69,7 +80,7 @@ def send_email(
         to:            recipient(s)
         subject:       plain text subject
         body_html:     HTML body
-        body_text:     optional plain-text alternative
+        body_text:     optional plain-text alternative (auto-derived if omitted)
         cc:            optional cc recipients
         attachments:   list of {"filename": str, "url": str (signed)}
         related_entity_type/id: for audit linking ("pay_app", "<uuid>")
@@ -109,39 +120,15 @@ def send_email(
         log.info("email_enabled=False — queued only (outbox_id=%s, subject=%r)",
                  outbox_id, subject)
         return {"outbox_id": outbox_id, "status": "pending",
-                "error": "email_provider is outbox_only"}
+                "error": "Gmail OAuth credentials not configured"}
 
     try:
-        body = {
-            "from": settings.email_from,
-            "to": to,
-            "subject": subject,
-            "html": body_html,
-        }
-        if cc:
-            body["cc"] = cc
-        if body_text:
-            body["text"] = body_text
-        if attachments:
-            # Resend accepts {"filename": ..., "path": URL} for URL fetch
-            body["attachments"] = [
-                {"filename": a["filename"], "path": a["url"]}
-                for a in attachments if a.get("url")
-            ]
-
-        with httpx.Client(timeout=30) as client:
-            resp = client.post(
-                _RESEND_URL,
-                headers={
-                    "Authorization": f"Bearer {settings.resend_api_key}",
-                    "Content-Type": "application/json",
-                },
-                content=json.dumps(body),
-            )
-        if resp.status_code >= 300:
-            raise RuntimeError(
-                f"Resend returned {resp.status_code}: {resp.text[:300]}"
-            )
+        msg = _build_message(
+            to=to, cc=cc, subject=subject,
+            body_html=body_html, body_text=body_text,
+            attachments=attachments,
+        )
+        _send_via_gmail_api(msg)
 
         sb.table("email_outbox").update({
             "status": "sent",
@@ -151,7 +138,7 @@ def send_email(
 
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
-        log.error("Resend send failed (outbox_id=%s): %s", outbox_id, err)
+        log.error("Gmail send failed (outbox_id=%s): %s", outbox_id, err)
         try:
             sb.table("email_outbox").update({
                 "status": "failed",
@@ -161,6 +148,104 @@ def send_email(
         except Exception:
             pass
         return {"outbox_id": outbox_id, "status": "failed", "error": err}
+
+
+def _build_message(
+    *,
+    to: list[str],
+    cc: list[str],
+    subject: str,
+    body_html: str,
+    body_text: Optional[str],
+    attachments: Optional[list[dict]],
+) -> EmailMessage:
+    """Build a MIME message with HTML body, text alternative, and attachments
+    fetched from URL."""
+    msg = EmailMessage()
+    sender_email = settings.gmail_sender_email or settings.email_from
+    msg["From"] = formataddr(("Ferrocrete Builders", sender_email))
+    msg["To"] = ", ".join(to)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    msg["Subject"] = subject
+
+    # Text part is the primary content; HTML is the alternative. Without a
+    # text part, some spam filters score the message higher.
+    fallback_text = body_text or _html_to_plaintext(body_html)
+    msg.set_content(fallback_text)
+    msg.add_alternative(body_html, subtype="html")
+
+    if attachments:
+        with httpx.Client(timeout=60) as client:
+            for a in attachments:
+                url = a.get("url")
+                filename = a.get("filename") or "attachment.bin"
+                if not url:
+                    continue
+                resp = client.get(url)
+                if resp.status_code >= 300:
+                    raise RuntimeError(
+                        f"Could not fetch attachment {filename!r} "
+                        f"(HTTP {resp.status_code}): {resp.text[:200]}"
+                    )
+                mime_type = resp.headers.get("content-type", "application/octet-stream")
+                maintype, _, subtype = mime_type.partition("/")
+                if not subtype:
+                    maintype, subtype = "application", "octet-stream"
+                msg.add_attachment(
+                    resp.content,
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=filename,
+                )
+    return msg
+
+
+def _send_via_gmail_api(msg: EmailMessage) -> None:
+    """Encode the MIME message and POST to Gmail's users.messages.send endpoint.
+
+    Credentials are constructed fresh on each call — google-auth handles
+    refresh-token-to-access-token exchange internally and caches in memory
+    for the (short) life of the process. For our send-then-exit pattern that
+    overhead is fine (~200ms per send).
+    """
+    # Imports are inside the function so the module can still load when the
+    # Google libraries aren't installed (e.g. in test environments).
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+
+    creds = Credentials(
+        token=None,
+        refresh_token=settings.gmail_oauth_refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=settings.gmail_oauth_client_id,
+        client_secret=settings.gmail_oauth_client_secret,
+        scopes=_GMAIL_SCOPES,
+    )
+    creds.refresh(Request())
+
+    # `cache_discovery=False` skips an on-disk cache that breaks on read-only
+    # filesystems (which Render's container has by default).
+    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+    service.users().messages().send(
+        userId="me",
+        body={"raw": raw},
+    ).execute()
+
+
+def _html_to_plaintext(html: str) -> str:
+    """Very rough HTML → text fallback for the text/plain alternative.
+    Not a real parser — just strips tags so the recipient's text-only client
+    sees readable copy. Real markup happens in the HTML part."""
+    import re
+    text = re.sub(r"<br\s*/?>", "\n", html, flags=re.I)
+    text = re.sub(r"</p>", "\n\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════

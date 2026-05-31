@@ -30,13 +30,21 @@ class Settings(BaseSettings):
 
     # Email
     # email_provider:
-    #   - "resend"       — send via Resend HTTP API (needs resend_api_key)
+    #   - "gmail_api"    — send via Gmail HTTP API as the gmail_sender_email user
     #   - "outbox_only"  — queue to email_outbox table but DON'T send
-    # When resend_api_key is unset the provider is forced to outbox_only
+    # When OAuth credentials are missing the provider is forced to outbox_only
     # regardless of this setting (fail-safe so we never silently drop emails).
     email_from: str = "noreply@ferrocretebuilders.com"
-    email_provider: str = "resend"
-    resend_api_key: Optional[str] = None
+    email_provider: str = "gmail_api"
+
+    # Gmail API (OAuth single-user). Refresh token is obtained once via
+    # scripts/get_gmail_refresh_token.py and stored in Render env vars.
+    gmail_oauth_client_id: Optional[str] = None
+    gmail_oauth_client_secret: Optional[str] = None
+    gmail_oauth_refresh_token: Optional[str] = None
+    # The Workspace inbox the app sends as (must match the account that
+    # granted OAuth consent). Gmail rewrites the From header to this address.
+    gmail_sender_email: Optional[str] = None
 
     # Public URL of the frontend app; used to build deep links inside emails
     # (e.g. "Review pay app: {app_url}/projects/.../pay-apps/...").
@@ -48,7 +56,14 @@ class Settings(BaseSettings):
     @property
     def email_enabled(self) -> bool:
         """True when emails should actually be sent (vs. queued only)."""
-        return self.email_provider == "resend" and bool(self.resend_api_key)
+        if self.email_provider == "gmail_api":
+            return bool(
+                self.gmail_oauth_client_id
+                and self.gmail_oauth_client_secret
+                and self.gmail_oauth_refresh_token
+                and self.gmail_sender_email
+            )
+        return False
 
     @property
     def cors_origin_list(self) -> list[str]:
