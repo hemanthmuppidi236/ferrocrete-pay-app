@@ -331,9 +331,8 @@ export default function ReleaseTrackerDetailPage({
         {/* Workflow + invoice header */}
         <div className="section-card glass" style={{ marginBottom: 16 }}>
           <div
+            className="two-col-collapse"
             style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
               gap: 24,
               alignItems: "start",
             }}
@@ -562,7 +561,8 @@ export default function ReleaseTrackerDetailPage({
             </div>
           </div>
 
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
                 <th style={{ ...thStyle, textAlign: "left" }}>Description</th>
@@ -611,18 +611,13 @@ export default function ReleaseTrackerDetailPage({
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Buildertrend reconciliation */}
         <div className="section-card glass">
           <h2 className="section-title">Buildertrend reconciliation</h2>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "10px 14px",
-            }}
-          >
+          <div className="two-col-collapse" style={{ gap: "10px 14px" }}>
             <div>
               <label className="form-label">Buildertrend total</label>
               <input

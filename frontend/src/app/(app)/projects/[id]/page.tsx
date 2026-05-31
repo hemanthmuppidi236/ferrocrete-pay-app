@@ -368,7 +368,8 @@ export default function ProjectDetailPage({
               No change orders yet.
             </div>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
                   <th style={{ ...thStyle, textAlign: "left" }}>CO #</th>
@@ -452,6 +453,7 @@ export default function ProjectDetailPage({
                 </tr>
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
@@ -460,13 +462,7 @@ export default function ProjectDetailPage({
           <div className="section-header">
             <h2 className="section-title">Sub releases & waivers</h2>
           </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 14,
-            }}
-          >
+          <div className="two-col-collapse">
             <Link
               href={`/projects/${id}/subs`}
               style={{
@@ -557,7 +553,8 @@ export default function ProjectDetailPage({
               No SOV lines yet.
             </div>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
                   <th style={thStyle}>#</th>
@@ -587,6 +584,7 @@ export default function ProjectDetailPage({
                 </tr>
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
@@ -689,7 +687,7 @@ function ProjectEditPanel({
         <h2 className="section-title">Edit project details</h2>
       </div>
 
-      <div style={editGridStyle}>
+      <div className="two-col-collapse">
         <Field label="Project name" required>
           <input
             type="text"
@@ -935,7 +933,7 @@ function ChangeOrderForm({
         border: "1px solid var(--accent-border)",
       }}
     >
-      <div style={editGridStyle}>
+      <div className="two-col-collapse">
         <Field label="CO #" required>
           <input
             type="text"
@@ -1171,12 +1169,6 @@ function CoStatusPill({ status }: { status: ChangeOrderStatus }) {
   };
   return <span className={`pill ${map[status]}`}>{status}</span>;
 }
-
-const editGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "14px 18px",
-};
 
 const thStyle: React.CSSProperties = {
   textAlign: "right",

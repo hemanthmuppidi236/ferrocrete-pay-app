@@ -1295,3 +1295,191 @@ h1, h2, h3, h4, h5, h6 { color: var(--text-primary); }
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE / RESPONSIVE OVERRIDES
+   Two breakpoints:
+     <= 900px  — tablet (already partially handled inline; this fills gaps)
+     <= 640px  — phone (the major layout reflow)
+   The pay-app SOV table and the release-tracker table preserve their
+   grid layouts and scroll horizontally on phone instead of trying to
+   reflow — they're too information-dense to redesign.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Generic two-column collapse helper ──────────────────────────── */
+/* Used by edit forms and side-by-side cards in the project detail page.
+   Two columns at desktop, single column on phone. */
+.two-col-collapse {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+@media (max-width: 640px) {
+  .two-col-collapse { grid-template-columns: 1fr; gap: 12px; }
+}
+
+
+/* ── Tablet (640–900px) ───────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .page-header { padding: 22px 24px 16px; }
+  .page-content { padding: 0 24px 48px; }
+  .page-title { font-size: 32px; }
+}
+
+/* ── Phone (<= 640px) ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+
+  /* Topbar: compact layout, hide breadcrumb + username */
+  .topbar {
+    padding: 10px 14px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .topbar-logo { height: 30px; }
+  .topbar-sep { display: none; }
+  .breadcrumb { display: none; }
+  .topbar-left, .topbar-right { gap: 8px; }
+  .nav-pill { padding: 5px 10px; font-size: 12px; letter-spacing: 0.3px; }
+  .topbar-user { padding-left: 8px; margin-left: 0; gap: 6px; }
+  .topbar-username { display: none; }
+  .avatar { width: 28px; height: 28px; font-size: 10px; }
+  .theme-toggle { width: 30px; height: 30px; }
+  .user-menu { right: 4px; min-width: 200px; }
+
+  /* Page header: stack title and actions */
+  .page-header {
+    padding: 18px 16px 14px;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .page-title { font-size: 26px; line-height: 1.1; }
+  .page-eyebrow { font-size: 10px; letter-spacing: 2px; }
+  .page-meta { font-size: 12px; }
+  .page-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .page-actions .btn { font-size: 14px; padding: 8px 14px; flex: 1; min-width: 110px; }
+  .page-actions .btn-ghost { flex: 0 0 auto; }
+
+  .page-content { padding: 0 16px 40px; }
+
+  /* Glass cards: slightly less padding */
+  .section-card { padding: 18px; }
+
+  /* Forms: full-width card, smaller padding */
+  .form-card { padding: 18px; max-width: none; }
+  .form-actions { flex-wrap: wrap; }
+  .form-actions .btn { flex: 1; min-width: 130px; }
+
+  /* Login screen */
+  .login-card { padding: 32px 24px 28px; }
+  .login-title { font-size: 26px; }
+
+  /* Project cards: single column */
+  .project-grid { grid-template-columns: 1fr; gap: 14px; }
+  .project-card { padding: 18px 18px; }
+  .project-card-name { font-size: 20px; }
+
+  /* Stat grid (project detail header): single column */
+  .stat-grid { grid-template-columns: 1fr; gap: 12px; }
+
+  /* Dashboard stat grid: stack to 1 column on phone */
+  .dash-stat-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .dash-stat-card { min-height: 90px; padding: 14px 16px 12px; }
+  .dash-stat-value { font-size: 28px; }
+
+  /* Dashboard filter row: chips wrap, dropdowns full width */
+  .dash-filter-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .dash-filter-eyebrow { margin-right: 0; }
+  .dash-chip-group { flex-wrap: wrap; }
+  .dash-chip { padding: 6px 12px; font-size: 13px; }
+  .dash-filter-divider { display: none; }
+  .dash-filter-spacer { display: none; }
+  .dash-dropdown { width: 100%; }
+  .dash-custom-range { flex-direction: column; align-items: stretch; }
+  .dash-custom-range input { width: 100%; }
+  .dash-range-dash { display: none; }
+
+  /* Dashboard table → vertical card layout.
+     The inline TABLE_GRID_STYLE sets display:grid on both rows, so we need
+     !important to override it from a stylesheet. */
+  .dash-table-header { display: none !important; }
+  .dash-table-row {
+    display: flex !important;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+  }
+  .dash-table-row > * { text-align: left !important; }
+  .dash-td-period {
+    order: -1;
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .dash-project-line { flex-wrap: wrap; }
+  .dash-project-name { font-size: 16px; }
+  .dash-td-app {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .dash-td-app::before { content: "App "; }
+  .dash-td-due {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .dash-td-pct {
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .dash-td-pct::after { content: " complete"; }
+  .dash-td-link {
+    margin-top: 4px;
+  }
+
+  /* Body grid (pay-app detail): single column already kicks in at 1100px;
+     just shrink the side padding here */
+  .sov-area { padding: 0 16px 30px; }
+  .preview-sidebar { padding: 0 16px 24px; }
+
+  /* SOV table: horizontal scroll wrapper preserves the 7-column grid */
+  .sov-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sov-row {
+    min-width: 760px;     /* keeps the columns readable; user scrolls horizontally */
+  }
+  .sov-section-label { font-size: 9.5px; letter-spacing: 2px; }
+
+  /* G702 preview sidebar in the inline (collapsed) form */
+  .preview-glass { padding: 18px 16px; position: static; }
+  .preview-title { font-size: 22px; }
+  .preview-pay-due-value { font-size: 28px; }
+  .preview-line { padding: 8px 0; }
+  .preview-line-label { font-size: 13px; }
+  .preview-line-value { font-size: 13px; }
+}
+
+/* ── Very narrow phones (<= 380px) ───────────────────────────────── */
+@media (max-width: 380px) {
+  .topbar-logo { height: 26px; }
+  .nav-pill { font-size: 11px; padding: 4px 8px; }
+  .page-title { font-size: 22px; }
+  .page-content { padding: 0 12px 32px; }
+  .page-header { padding: 14px 12px 12px; }
+  .dash-stat-value { font-size: 24px; }
+}

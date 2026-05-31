@@ -532,13 +532,7 @@ function SubForm({
         border: "1px solid var(--accent-border)",
       }}
     >
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "10px 14px",
-        }}
-      >
+      <div className="two-col-collapse" style={{ gap: "10px 14px" }}>
         <div style={{ gridColumn: "span 2" }}>
           <label className="form-label">Name *</label>
           <input
