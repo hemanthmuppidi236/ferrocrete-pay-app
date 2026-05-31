@@ -258,10 +258,15 @@ def dashboard(
     except HTTPException:
         raise
     except Exception as e:
-        # Don't leak Supabase internals.
+        # Internal-only app: surface the real error to the client so we don't
+        # have to dig through Render logs every time. Also log the full
+        # traceback server-side for after-the-fact debugging.
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[dashboard] {type(e).__name__}: {e}\n{tb}", flush=True)
         raise HTTPException(
             status_code=503,
-            detail=f"Could not load dashboard: {type(e).__name__}",
+            detail=f"Could not load dashboard — {type(e).__name__}: {e}",
         )
 
     return {"pay_apps": filtered, "stats": stats}
