@@ -48,7 +48,9 @@ export default function PayAppDraftPage({
   const [error, setError] = useState<string | null>(null);
 
   // Workflow action state
-  const [workflowBusy, setWorkflowBusy] = useState<"none" | "submit" | "approve" | "reject" | "send" | "paid">("none");
+  const [workflowBusy, setWorkflowBusy] = useState<
+    "none" | "submit" | "approve" | "reject" | "send" | "paid" | "recall" | "unapprove" | "unsend"
+  >("none");
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -319,6 +321,55 @@ export default function PayAppDraftPage({
     }
   }
 
+  // ─── Revert helpers ─────────────────────────────────────────
+  // Three "undo" transitions. Each prompts for confirmation since reverts are
+  // unusual actions and shouldn't be triggered by a stray click.
+
+  async function recall() {
+    if (!payApp) return;
+    if (!confirm("Recall this submission and move it back to draft? Admins will no longer see it in their approval queue.")) return;
+    setWorkflowError(null);
+    setWorkflowBusy("recall");
+    try {
+      await api.post(`/pay-apps/${payApp.id}/recall`);
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
+  async function unapprove() {
+    if (!payApp) return;
+    if (!confirm("Send this approved pay app back to draft? The accountant will be notified.")) return;
+    setWorkflowError(null);
+    setWorkflowBusy("unapprove");
+    try {
+      await api.post(`/pay-apps/${payApp.id}/unapprove`);
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
+  async function unsend() {
+    if (!payApp) return;
+    if (!confirm("Move this back to 'approved'? Note: if an email was sent to the GC, it has already been delivered — this only changes the app's status.")) return;
+    setWorkflowError(null);
+    setWorkflowBusy("unsend");
+    try {
+      await api.post(`/pay-apps/${payApp.id}/unsend`);
+      await refreshPayApp();
+    } catch (e) {
+      setWorkflowError(formatApiError(e));
+    } finally {
+      setWorkflowBusy("none");
+    }
+  }
+
   async function markPaid() {
     if (!payApp) return;
     const defaultAmount = parseFloat(payApp.current_payment_due || "0").toFixed(2);
@@ -519,6 +570,9 @@ export default function PayAppDraftPage({
               onConfirmReject={reject}
               onSendToGc={sendToGc}
               onMarkPaid={markPaid}
+              onRecall={recall}
+              onUnapprove={unapprove}
+              onUnsend={unsend}
             />
 
             <div className="preview-actions">
@@ -840,12 +894,13 @@ function WorkflowActions({
   rejectMode, rejectReason,
   onSubmitForApproval, onApprove, onStartReject, onCancelReject,
   onChangeRejectReason, onConfirmReject, onSendToGc, onMarkPaid,
+  onRecall, onUnapprove, onUnsend,
 }: {
   payApp: PayApp;
   project: Project;
   isAdmin: boolean;
   canMoveWorkflow: boolean;
-  busy: "none" | "submit" | "approve" | "reject" | "send" | "paid";
+  busy: "none" | "submit" | "approve" | "reject" | "send" | "paid" | "recall" | "unapprove" | "unsend";
   error: string | null;
   rejectMode: boolean;
   rejectReason: string;
@@ -857,6 +912,9 @@ function WorkflowActions({
   onConfirmReject: () => void;
   onSendToGc: () => void;
   onMarkPaid: () => void;
+  onRecall: () => void;
+  onUnapprove: () => void;
+  onUnsend: () => void;
 }) {
   const status: PayAppStatus = payApp.status;
   const gcEmail = (project.gc_contact_email || "").trim();
@@ -881,44 +939,62 @@ function WorkflowActions({
         </div>
       </>
     );
-  } else if (status === "pending_approval" && isAdmin) {
-    panel = rejectMode ? (
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <label className="form-label">Reason for rejection</label>
-        <textarea
-          className="input"
-          value={rejectReason}
-          onChange={e => onChangeRejectReason(e.target.value)}
-          rows={4}
-          placeholder="What needs to change?"
-          style={{ fontFamily: "EB Garamond, serif", fontSize: 14, resize: "vertical" }}
-        />
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-ghost" onClick={onCancelReject}
-                  disabled={busy !== "none"} style={{ flex: 1 }}>
-            Cancel
-          </button>
-          <button className="btn dash-btn-red" onClick={onConfirmReject}
-                  disabled={busy !== "none" || !rejectReason.trim()} style={{ flex: 1 }}>
-            {busy === "reject" ? "Sending…" : "Send back"}
-          </button>
-        </div>
-      </div>
-    ) : (
-      <div style={{ display: "flex", gap: 8 }}>
-        <button className="btn btn-ghost" onClick={onStartReject}
-                disabled={busy !== "none"} style={{ flex: 1 }}>
-          Reject
-        </button>
-        <button className="btn btn-accent" onClick={onApprove}
-                disabled={busy !== "none"} style={{ flex: 1 }}>
-          {busy === "approve" ? "Approving…" : "Approve ✓"}
-        </button>
+  } else if (status === "pending_approval" && canMoveWorkflow) {
+    // Admin: Approve / Reject (or reject-mode textarea) + Recall.
+    // Accountant (non-admin): Recall only.
+    panel = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {isAdmin && rejectMode && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label className="form-label">Reason for rejection</label>
+            <textarea
+              className="input"
+              value={rejectReason}
+              onChange={e => onChangeRejectReason(e.target.value)}
+              rows={4}
+              placeholder="What needs to change?"
+              style={{ fontFamily: "EB Garamond, serif", fontSize: 14, resize: "vertical" }}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-ghost" onClick={onCancelReject}
+                      disabled={busy !== "none"} style={{ flex: 1 }}>
+                Cancel
+              </button>
+              <button className="btn dash-btn-red" onClick={onConfirmReject}
+                      disabled={busy !== "none" || !rejectReason.trim()} style={{ flex: 1 }}>
+                {busy === "reject" ? "Sending…" : "Send back"}
+              </button>
+            </div>
+          </div>
+        )}
+        {isAdmin && !rejectMode && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-ghost" onClick={onStartReject}
+                    disabled={busy !== "none"} style={{ flex: 1 }}>
+              Reject
+            </button>
+            <button className="btn btn-accent" onClick={onApprove}
+                    disabled={busy !== "none"} style={{ flex: 1 }}>
+              {busy === "approve" ? "Approving…" : "Approve ✓"}
+            </button>
+          </div>
+        )}
+        {!rejectMode && (
+          <RevertButton
+            onClick={onRecall}
+            busy={busy === "recall"}
+            disabled={busy !== "none"}
+            label="Recall submission"
+            help={isAdmin
+              ? "Move back to draft (cancels this approval request)."
+              : "Pull back before admin reviews — moves to draft."}
+          />
+        )}
       </div>
     );
   } else if (status === "approved" && canMoveWorkflow) {
     panel = (
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <button
           className="btn btn-accent"
           onClick={onSendToGc}
@@ -938,18 +1014,36 @@ function WorkflowActions({
             using the downloaded files, then click above to mark it sent.
           </div>
         )}
+        {isAdmin && (
+          <RevertButton
+            onClick={onUnapprove}
+            busy={busy === "unapprove"}
+            disabled={busy !== "none"}
+            label="Send back to draft"
+            help="Un-approve and reopen for editing (notifies the submitter)."
+          />
+        )}
       </div>
     );
   } else if (status === "submitted" && canMoveWorkflow) {
     panel = (
-      <button
-        className="btn btn-accent"
-        onClick={onMarkPaid}
-        disabled={busy !== "none"}
-        style={{ width: "100%" }}
-      >
-        {busy === "paid" ? "Recording…" : "Mark as paid"}
-      </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <button
+          className="btn btn-accent"
+          onClick={onMarkPaid}
+          disabled={busy !== "none"}
+          style={{ width: "100%" }}
+        >
+          {busy === "paid" ? "Recording…" : "Mark as paid"}
+        </button>
+        <RevertButton
+          onClick={onUnsend}
+          busy={busy === "unsend"}
+          disabled={busy !== "none"}
+          label="Undo send"
+          help="Move back to 'approved'. Doesn't unsend any email already delivered."
+        />
+      </div>
     );
   } else {
     return null;    // nothing to do for this user/status combo
@@ -970,6 +1064,41 @@ function WorkflowActions({
           {error}
         </div>
       )}
+    </div>
+  );
+}
+
+
+// Small ghost-styled revert button used in three places (recall / unapprove /
+// unsend). Visually de-emphasized so it never competes with the primary action.
+
+function RevertButton({
+  onClick, busy, disabled, label, help,
+}: {
+  onClick: () => void;
+  busy: boolean;
+  disabled: boolean;
+  label: string;
+  help: string;
+}) {
+  return (
+    <div style={{
+      marginTop: 4, paddingTop: 10,
+      borderTop: "1px dashed var(--border)",
+      display: "flex", flexDirection: "column", gap: 4,
+    }}>
+      <button
+        className="btn btn-ghost"
+        onClick={onClick}
+        disabled={disabled}
+        style={{ width: "100%", fontSize: 13, padding: "8px 14px" }}
+      >
+        {busy ? "Working…" : `↩ ${label}`}
+      </button>
+      <div style={{ fontSize: 11.5, color: "var(--text-faint)",
+                    fontFamily: "EB Garamond, serif", textAlign: "center" }}>
+        {help}
+      </div>
     </div>
   );
 }

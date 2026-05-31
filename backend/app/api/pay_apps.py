@@ -7,11 +7,17 @@ Pay Applications API.
   POST   /pay-apps                                create new (draft)
   PATCH  /pay-apps/{id}                           update metadata
   PUT    /pay-apps/{id}/billings                  replace billings (recalcs totals)
+
   POST   /pay-apps/{id}/submit-for-approval       draft → pending_approval  (accountant/admin)
+  POST   /pay-apps/{id}/recall                    pending_approval → draft  (accountant/admin) — undo
   POST   /pay-apps/{id}/approve                   pending_approval → approved (admin)
   POST   /pay-apps/{id}/reject                    pending_approval → draft + reason (admin)
+  POST   /pay-apps/{id}/unapprove                 approved → draft  (admin) — undo, notifies submitter
   POST   /pay-apps/{id}/send-to-gc                approved → submitted; emails GC if set
+  POST   /pay-apps/{id}/unsend                    submitted → approved  (accountant/admin) — undo
+                                                  (the email already left; this only fixes app state)
   POST   /pay-apps/{id}/mark-paid                 submitted → paid
+
   DELETE /pay-apps/{id}                           only allowed on draft
 """
 
@@ -626,6 +632,38 @@ def submit_for_approval(
     return pa
 
 
+@router.post("/{pay_app_id}/recall", response_model=PayApp)
+def recall_pay_app(
+    pay_app_id: UUID,
+    user: CurrentUser = Depends(require_role("admin", "accountant")),
+):
+    """pending_approval → draft. Withdraws a submission before admin acts.
+
+    No email goes out — the approval-needed email already went to admins, but
+    they'll see the pay app drop out of their 'Awaiting your approval' queue
+    on next dashboard load. The audit log records who recalled it.
+    """
+    sb = get_service_client()
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "pending_approval":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Pay app is {existing['status']}; only pending_approval pay apps can be recalled.",
+        )
+
+    res = sb.table("pay_apps").update({
+        "status": "draft",
+        # Clear the submit-for-approval markers — it's as if it was never sent.
+        "submitted_for_approval_at": None,
+        "submitted_for_approval_by": None,
+    }).eq("id", str(pay_app_id)).execute()
+    pa = res.data[0]
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "recalled",
+              before=existing, after=pa)
+    return pa
+
+
 @router.post("/{pay_app_id}/approve", response_model=PayApp)
 def approve_pay_app(
     pay_app_id: UUID,
@@ -706,6 +744,51 @@ def reject_pay_app(
             )
     except Exception as e:
         print(f"[pay_apps] reject notification failed: {e}", flush=True)
+
+    return pa
+
+
+@router.post("/{pay_app_id}/unapprove", response_model=PayApp)
+def unapprove_pay_app(
+    pay_app_id: UUID,
+    user: CurrentUser = Depends(require_role("admin")),
+):
+    """approved → draft. Lets an admin unwind an approval (e.g., approved too
+    quickly, wants another look). Clears approval + submit-for-approval
+    timestamps; status is back at draft. Notifies the original submitter so
+    they aren't confused when their 'approved' pay app reappears in edits.
+    """
+    sb = get_service_client()
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "approved":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Pay app is {existing['status']}; only approved pay apps can be un-approved.",
+        )
+
+    res = sb.table("pay_apps").update({
+        "status": "draft",
+        "approved_at": None,
+        "approved_by": None,
+        "submitted_for_approval_at": None,
+        "submitted_for_approval_by": None,
+    }).eq("id", str(pay_app_id)).execute()
+    pa = res.data[0]
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "unapproved",
+              before=existing, after=pa)
+
+    try:
+        project = _load_project(sb, pa["project_id"])
+        submitter = _load_user(sb, existing.get("submitted_for_approval_by"))
+        approver = _load_user(sb, user.id) or {"id": user.id, "email": user.email,
+                                               "full_name": user.full_name}
+        if submitter:
+            email_svc.notify_unapproved(
+                pa=pa, project=project, submitter=submitter, approver=approver,
+            )
+    except Exception as e:
+        print(f"[pay_apps] unapprove notification failed: {e}", flush=True)
 
     return pa
 
@@ -794,6 +877,43 @@ def send_pay_app_to_gc(
                   "email_outbox_id": (email_result or {}).get("outbox_id"),
                   "email_status": (email_result or {}).get("status"),
               })
+    return pa
+
+
+@router.post("/{pay_app_id}/unsend", response_model=PayApp)
+def unsend_pay_app(
+    pay_app_id: UUID,
+    user: CurrentUser = Depends(require_role("admin", "accountant")),
+):
+    """submitted → approved. Moves the pay app back to the 'approved' state
+    if it was clicked send-to-gc by mistake or the GC asked to resubmit.
+
+    The email (if one was sent) is already in the GC's inbox — this endpoint
+    only fixes the in-app state, it can't unsend the email. Caller should
+    follow up with the GC out-of-band if needed.
+    """
+    sb = get_service_client()
+    existing = _load_pay_app_or_404(sb, pay_app_id)
+    if existing["status"] != "submitted":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Pay app is {existing['status']}; only submitted pay apps can be moved back to approved.",
+        )
+
+    res = sb.table("pay_apps").update({
+        "status": "approved",
+        # Clear send-to-GC markers so the accountant can resend cleanly.
+        "sent_to_gc_at": None,
+        "sent_to_gc_by": None,
+        "sent_to_gc_email": None,
+        # Keep the legacy submitted_at/submitted_by — they're audit-only and
+        # never displayed once the new workflow took over.
+    }).eq("id", str(pay_app_id)).execute()
+    pa = res.data[0]
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "unsent",
+              before=existing, after=pa,
+              metadata={"prior_sent_to_gc_email": existing.get("sent_to_gc_email")})
     return pa
 
 

@@ -353,6 +353,32 @@ def notify_rejected(*, pa: dict, project: dict, submitter: dict,
     )
 
 
+def notify_unapproved(*, pa: dict, project: dict, submitter: dict, approver: dict) -> dict:
+    """Admin un-approved a previously-approved pay app. Tell the submitter so
+    they know the pay app reopened for editing."""
+    if not submitter.get("email"):
+        return {"status": "skipped", "error": "submitter has no email"}
+    link = _pay_app_link(project["id"], pa["period"])
+    approver_name = approver.get("full_name") or approver.get("email") or "Admin"
+    subject = f"Reopened for editing: Pay app #{pa['app_no']} for {project['name']}"
+    body_html = f"""
+    <p>{approver_name} reopened pay app <b>#{pa['app_no']}</b> for
+       <b>{project['name']}</b> — it's back in draft state.</p>
+    <p>If they intend revisions, you'll likely hear from them separately.
+       Otherwise, edit and re-submit when ready.</p>
+    <p><a href="{link}">Open the pay app →</a></p>
+    """.strip()
+    return send_email(
+        to=[submitter["email"]],
+        cc=[approver["email"]] if approver.get("email") else None,
+        subject=subject,
+        body_html=body_html,
+        related_entity_type="pay_app",
+        related_entity_id=pa["id"],
+        created_by=approver.get("id"),
+    )
+
+
 def email_pay_app_to_gc(
     *,
     pa: dict,
