@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import type { Project } from "@/lib/types";
+import { fmtMoneyShort, fmtPct } from "@/lib/payAppMath";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -131,7 +132,7 @@ function ProjectCard({ project }: { project: Project }) {
         <div className="project-card-stat">
           <div className="project-card-stat-label">Contract</div>
           <div className="project-card-stat-value">
-            {fmtMoney(project.contract_value)}
+            {fmtMoneyShort(project.contract_value)}
           </div>
         </div>
         <div className="project-card-stat">
@@ -159,18 +160,3 @@ function StatusPill({ status }: { status: Project["status"] }) {
   return <span className={`pill ${map[status]}`}>{label[status]}</span>;
 }
 
-function fmtMoney(v: string | number): string {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  if (isNaN(n)) return String(v);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function fmtPct(v: string | number): string {
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  if (isNaN(n)) return String(v);
-  return `${Math.round(n * 100)}%`;
-}

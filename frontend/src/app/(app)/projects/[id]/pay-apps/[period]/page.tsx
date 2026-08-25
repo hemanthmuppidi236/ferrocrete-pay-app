@@ -494,7 +494,7 @@ export default function PayAppDraftPage({
             />
           )}
 
-          <div style={{ marginTop: 24, fontSize: 12, color: "var(--text-faint)", fontFamily: "IBM Plex Mono, monospace", letterSpacing: "0.5px" }}>
+          <div style={{ marginTop: 24, fontSize: 12, color: "var(--text-faint)", fontFamily: "var(--font-mono)", letterSpacing: "0.5px" }}>
             Total schedule of values: <strong>{fmtMoneyShort(totalRow)}</strong>
           </div>
         </div>
@@ -816,7 +816,7 @@ function StatusBanner({ payApp }: { payApp: PayApp }) {
         <blockquote style={{
           borderLeft: "3px solid var(--ferrocrete-red)", margin: "8px 0 4px",
           padding: "4px 12px", background: "rgba(213,59,52,0.06)",
-          whiteSpace: "pre-wrap", fontFamily: "EB Garamond, serif",
+          whiteSpace: "pre-wrap", fontFamily: "var(--font-serif)",
         }}>{payApp.rejection_reason}</blockquote>
         Make the changes below and resubmit.
       </>
@@ -861,7 +861,7 @@ function StatusBanner({ payApp }: { payApp: PayApp }) {
         style={{
           fontSize: 14,
           color: "var(--text-body)",
-          fontFamily: "EB Garamond, serif",
+          fontFamily: "var(--font-serif)",
         }}
       >
         <b style={{ color: accent }}>{label} · </b>
@@ -934,7 +934,7 @@ function WorkflowActions({
           {busy === "submit" ? "Sending…" : "Send for approval →"}
         </button>
         <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 8,
-                      fontFamily: "EB Garamond, serif" }}>
+                      fontFamily: "var(--font-serif)" }}>
           Admins will be notified by email to review and approve.
         </div>
       </>
@@ -953,7 +953,7 @@ function WorkflowActions({
               onChange={e => onChangeRejectReason(e.target.value)}
               rows={4}
               placeholder="What needs to change?"
-              style={{ fontFamily: "EB Garamond, serif", fontSize: 14, resize: "vertical" }}
+              style={{ fontFamily: "var(--font-serif)", fontSize: 14, resize: "vertical" }}
             />
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-ghost" onClick={onCancelReject}
@@ -1009,7 +1009,7 @@ function WorkflowActions({
         </button>
         {!gcEmail && (
           <div style={{ fontSize: 12, color: "var(--status-amber)",
-                        fontFamily: "EB Garamond, serif" }}>
+                        fontFamily: "var(--font-serif)" }}>
             ⚠ No GC email on file for this project — submit through their portal
             using the downloaded files, then click above to mark it sent.
           </div>
@@ -1059,7 +1059,7 @@ function WorkflowActions({
       {error && (
         <div style={{
           fontSize: 13, color: "var(--ferrocrete-red)",
-          fontFamily: "EB Garamond, serif", marginTop: 6,
+          fontFamily: "var(--font-serif)", marginTop: 6,
         }}>
           {error}
         </div>
@@ -1096,7 +1096,7 @@ function RevertButton({
         {busy ? "Working…" : `↩ ${label}`}
       </button>
       <div style={{ fontSize: 11.5, color: "var(--text-faint)",
-                    fontFamily: "EB Garamond, serif", textAlign: "center" }}>
+                    fontFamily: "var(--font-serif)", textAlign: "center" }}>
         {help}
       </div>
     </div>

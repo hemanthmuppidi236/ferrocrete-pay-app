@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { fmtMoneyShort } from "@/lib/payAppMath";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { ErrorBanner } from "@/components/ErrorBanner";
 
 export default function ReleaseTrackerDetailPage({
   params,
@@ -373,7 +374,7 @@ export default function ReleaseTrackerDetailPage({
                 <div
                   style={{
                     marginTop: 14,
-                    fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                    fontFamily: "var(--font-mono)",
                     fontSize: 11,
                     color: "var(--text-muted)",
                   }}
@@ -406,7 +407,7 @@ export default function ReleaseTrackerDetailPage({
                       fontSize: 11,
                       color: "var(--text-muted)",
                       marginTop: 4,
-                      fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                      fontFamily: "var(--font-mono)",
                     }}
                   >
                     Manually overridden. Click to{" "}
@@ -531,11 +532,11 @@ export default function ReleaseTrackerDetailPage({
                           style={{
                             marginTop: 10,
                             padding: "8px 14px",
-                            background: "rgba(245, 158, 11, 0.10)",
-                            border: "1px solid rgba(245, 158, 11, 0.30)",
+                            background: "rgba(154,112,32,0.12)",
+                            border: "1px solid rgba(154,112,32,0.30)",
                             borderRadius: "var(--radius-sm)",
                             fontSize: 13,
-                            color: "var(--status-amber, #b45309)",
+                            color: "var(--status-amber)",
                           }}
                         >
                           ⚠ Billed total ({fmtMoneyShort(billedTotal)})
@@ -643,7 +644,7 @@ export default function ReleaseTrackerDetailPage({
             <div style={{ gridColumn: "span 2" }}>
               <div
                 style={{
-                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                  fontFamily: "var(--font-mono)",
                   fontSize: 13,
                   color: "var(--text-muted)",
                   marginTop: 6,
@@ -899,13 +900,13 @@ function WaiverSlot({
           alignItems: "center",
           gap: 2,
           padding: "3px 6px",
-          fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: 10,
           fontWeight: 600,
           letterSpacing: 0.5,
-          background: "rgba(22, 163, 74, 0.12)",
+          background: "rgba(58,122,86,0.14)",
           color: "var(--status-green)",
-          border: "1px solid rgba(22, 163, 74, 0.30)",
+          border: "1px solid rgba(58,122,86,0.30)",
           borderRadius: 4,
         }}
       >
@@ -952,7 +953,7 @@ function WaiverSlot({
     return (
       <span
         style={{
-          fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: 10,
           color: "var(--text-faint)",
           padding: "3px 6px",
@@ -969,7 +970,7 @@ function WaiverSlot({
     <label
       style={{
         cursor: uploading ? "wait" : "pointer",
-        fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+        fontFamily: "var(--font-mono)",
         fontSize: 10,
         fontWeight: 500,
         letterSpacing: 0.5,
@@ -977,7 +978,7 @@ function WaiverSlot({
         border: "1px dashed var(--border-strong)",
         borderRadius: 4,
         color: uploading ? "var(--status-amber)" : "var(--text-muted)",
-        background: uploading ? "rgba(245, 158, 11, 0.10)" : "transparent",
+        background: uploading ? "rgba(154,112,32,0.12)" : "transparent",
       }}
       title={uploading ? "Uploading…" : `Upload ${type} waiver`}
     >
@@ -1031,7 +1032,7 @@ function WorkflowCheckbox({
       {checked && (
         <span
           style={{
-            fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+            fontFamily: "var(--font-mono)",
             fontSize: 10,
             color: "var(--status-green)",
             letterSpacing: 1,
@@ -1045,46 +1046,11 @@ function WorkflowCheckbox({
   );
 }
 
-function ErrorBanner({
-  message,
-  onDismiss,
-}: {
-  message: string;
-  onDismiss: () => void;
-}) {
-  return (
-    <div
-      className="glass"
-      style={{
-        padding: 14,
-        marginBottom: 16,
-        borderColor: "rgba(213,59,52,0.30)",
-        background: "rgba(213,59,52,0.06)",
-        fontSize: 14,
-        color: "var(--ferrocrete-red)",
-      }}
-    >
-      {message}
-      <button
-        onClick={onDismiss}
-        style={{
-          float: "right",
-          background: "none",
-          border: "none",
-          color: "var(--ferrocrete-red)",
-          cursor: "pointer",
-        }}
-      >
-        ✕
-      </button>
-    </div>
-  );
-}
 
 const thStyle: React.CSSProperties = {
   textAlign: "right",
   padding: "10px 8px",
-  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+  fontFamily: "var(--font-mono)",
   fontSize: 10,
   letterSpacing: "1.5px",
   textTransform: "uppercase",
@@ -1093,7 +1059,7 @@ const thStyle: React.CSSProperties = {
 };
 const totalLabelStyle: React.CSSProperties = {
   paddingTop: 14,
-  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+  fontFamily: "var(--font-mono)",
   fontSize: 10,
   letterSpacing: "1.5px",
   textTransform: "uppercase",
@@ -1103,7 +1069,7 @@ const totalLabelStyle: React.CSSProperties = {
 const totalValueStyle: React.CSSProperties = {
   paddingTop: 14,
   textAlign: "right",
-  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+  fontFamily: "var(--font-mono)",
   fontSize: 14,
   fontWeight: 600,
   color: "var(--text-primary)",

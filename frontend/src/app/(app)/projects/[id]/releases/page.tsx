@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import { fmtMoneyShort } from "@/lib/payAppMath";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { ErrorBanner } from "@/components/ErrorBanner";
 
 export default function ProjectReleasesPage({
   params,
@@ -188,7 +189,7 @@ export default function ProjectReleasesPage({
                 >
                   <div
                     style={{
-                      fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                      fontFamily: "var(--font-mono)",
                       fontSize: 12,
                       color: "var(--text-muted)",
                       minWidth: 70,
@@ -276,7 +277,7 @@ function WorkflowDots({ tracker }: { tracker: ReleaseTracker }) {
       style={{
         display: "inline-flex",
         gap: 5,
-        fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+        fontFamily: "var(--font-mono)",
         fontSize: 10,
         color: "var(--text-muted)",
         textTransform: "uppercase",
@@ -317,38 +318,3 @@ function WorkflowStatus({ tracker }: { tracker: ReleaseTracker }) {
   return <span className={`pill ${cls}`}>{label}</span>;
 }
 
-function ErrorBanner({
-  message,
-  onDismiss,
-}: {
-  message: string;
-  onDismiss: () => void;
-}) {
-  return (
-    <div
-      className="glass"
-      style={{
-        padding: 14,
-        marginBottom: 16,
-        borderColor: "rgba(213,59,52,0.30)",
-        background: "rgba(213,59,52,0.06)",
-        fontSize: 14,
-        color: "var(--ferrocrete-red)",
-      }}
-    >
-      {message}
-      <button
-        onClick={onDismiss}
-        style={{
-          float: "right",
-          background: "none",
-          border: "none",
-          color: "var(--ferrocrete-red)",
-          cursor: "pointer",
-        }}
-      >
-        ✕
-      </button>
-    </div>
-  );
-}

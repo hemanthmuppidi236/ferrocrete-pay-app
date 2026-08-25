@@ -144,7 +144,7 @@ export default function ImportProjectPage() {
             </div>
             <div
               style={{
-                fontFamily: "EB Garamond, Garamond, Cambria, Georgia, 'Times New Roman', serif",
+                fontFamily: "var(--font-serif)",
                 fontSize: 24,
                 fontWeight: 500,
                 color: "var(--text-primary)",
@@ -157,7 +157,7 @@ export default function ImportProjectPage() {
               <span
                 style={{
                   marginLeft: 12,
-                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                  fontFamily: "var(--font-mono)",
                   fontSize: 14,
                   color: "var(--text-faint)",
                   letterSpacing: "1.5px",

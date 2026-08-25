@@ -174,7 +174,7 @@ export function Topbar({
               className="user-menu-item"
               style={{
                 fontSize: 11,
-                fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                fontFamily: "var(--font-mono)",
                 color: "var(--text-faint)",
                 letterSpacing: "0.5px",
                 cursor: "default",

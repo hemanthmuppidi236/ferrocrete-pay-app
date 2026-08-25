@@ -135,3 +135,10 @@ export function fmtMoneyShort(n: number | string): string {
     maximumFractionDigits: 0,
   }).format(num);
 }
+
+/** Format a 0..1 rate as a whole-number percent, e.g. 0.1 -> "10%". */
+export function fmtPct(v: number | string): string {
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  if (isNaN(n)) return String(v);
+  return `${Math.round(n * 100)}%`;
+}

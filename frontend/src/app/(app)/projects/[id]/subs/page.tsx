@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, formatApiError } from "@/lib/api";
 import type { Project, Sub, ReleaseType } from "@/lib/types";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { ErrorBanner } from "@/components/ErrorBanner";
 
 export default function ProjectSubsPage({
   params,
@@ -294,7 +295,7 @@ function SubTreeNode({
           <div style={{ flex: "1 1 auto", minWidth: 0 }}>
             <div
               style={{
-                fontFamily: "EB Garamond, Garamond, Cambria, Georgia, 'Times New Roman', serif",
+                fontFamily: "var(--font-serif)",
                 fontSize: 15,
                 fontWeight: 500,
                 color: "var(--text-primary)",
@@ -318,7 +319,7 @@ function SubTreeNode({
             {(sub.contact_name || sub.contact_email || sub.contact_phone) && (
               <div
                 style={{
-                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                  fontFamily: "var(--font-mono)",
                   fontSize: 11,
                   color: "var(--text-muted)",
                   marginTop: 2,
@@ -333,7 +334,7 @@ function SubTreeNode({
           {sub.default_release_type && (
             <span
               style={{
-                fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                fontFamily: "var(--font-mono)",
                 fontSize: 11,
                 color: "var(--text-muted)",
                 marginRight: 4,
@@ -656,7 +657,7 @@ function SubForm({
               <>
                 <span
                   style={{
-                    fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                    fontFamily: "var(--font-mono)",
                     fontSize: 11,
                     letterSpacing: 1,
                     color: "var(--ferrocrete-red)",
@@ -669,12 +670,7 @@ function SubForm({
                 <button
                   onClick={handleDelete}
                   disabled={saving}
-                  className="btn"
-                  style={{
-                    color: "#fff",
-                    background: "var(--ferrocrete-red)",
-                    borderColor: "var(--ferrocrete-red)",
-                  }}
+                  className="btn btn-red"
                 >
                   Yes
                 </button>
@@ -705,38 +701,3 @@ function SubForm({
   );
 }
 
-function ErrorBanner({
-  message,
-  onDismiss,
-}: {
-  message: string;
-  onDismiss: () => void;
-}) {
-  return (
-    <div
-      className="glass"
-      style={{
-        padding: 14,
-        marginBottom: 16,
-        borderColor: "rgba(213,59,52,0.30)",
-        background: "rgba(213,59,52,0.06)",
-        fontSize: 14,
-        color: "var(--ferrocrete-red)",
-      }}
-    >
-      {message}
-      <button
-        onClick={onDismiss}
-        style={{
-          float: "right",
-          background: "none",
-          border: "none",
-          color: "var(--ferrocrete-red)",
-          cursor: "pointer",
-        }}
-      >
-        ✕
-      </button>
-    </div>
-  );
-}

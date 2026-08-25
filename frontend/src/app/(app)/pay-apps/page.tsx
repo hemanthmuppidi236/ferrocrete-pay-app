@@ -539,7 +539,7 @@ function YourCourtSection({
             {title} ({count})
           </div>
           <div style={{
-            fontFamily: "EB Garamond, serif", fontSize: 14, color: "var(--text-muted)", marginTop: 4,
+            fontFamily: "var(--font-serif)", fontSize: 14, color: "var(--text-muted)", marginTop: 4,
           }}>
             {helpText}
             {totalAmount > 0 && <>  ·  <b>{fmtMoneyCompact(totalAmount)}</b> total</>}
