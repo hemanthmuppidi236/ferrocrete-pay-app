@@ -234,6 +234,9 @@ export interface ReleaseTracker {
 export interface ReleaseTrackerDetail extends ReleaseTracker {
   lines: ReleaseLine[];
   unbilled_entries: ReleaseUnbilledEntry[];
+  // Ferrocrete's net income = invoice − Σ(sub checks) − Σ(prev-month unbilled).
+  // Feeds the Billing Summary's "Potential Net" column.
+  ferrocrete_net: Money | null;
 }
 
 export interface Waiver {
@@ -248,4 +251,73 @@ export interface Waiver {
   uploaded_by: UUID | null;
   uploaded_at: ISODateTime;
   notes: string | null;
+}
+
+// ─── BILLING SUMMARY ──────────────────────────────────────────────────
+
+export interface BillingSummaryRow {
+  project_id: UUID;
+  project_no: string;
+  project_name: string;
+  job: string;
+
+  // Auto financial columns (from pay app + release tracker)
+  revised_contract: Money;
+  total_completed: Money;
+  retention: Money;
+  balance_to_finish: Money;
+  gross_billing: Money;
+  retention_rate: Money;
+  billed_amount: Money;
+  potential_net: Money | null;
+
+  // Manual (auto-defaulted, editable overrides)
+  billing_due_date: string;
+  bt_note: string;
+  rebar: Money | null;
+  cmu: Money | null;
+  cpcf_sent: string;
+  upuf_sent: string;
+  billing_contact: string;
+  payment_status: string;
+
+  has_pay_app: boolean;
+  pay_app_id: UUID | null;
+}
+
+export interface BillingSummaryTotals {
+  revised_contract: Money;
+  total_completed: Money;
+  retention: Money;
+  balance_to_finish: Money;
+  gross_billing: Money;
+  billed_amount: Money;
+  potential_net: Money;
+}
+
+export interface BillingSummaryAccrued {
+  net: Money;
+  billed: Money;
+}
+
+export interface BillingSummaryResponse {
+  period: string | null;
+  available_periods: string[];
+  rows: BillingSummaryRow[];
+  totals: BillingSummaryTotals;
+  accrued: BillingSummaryAccrued;
+}
+
+// Editable manual columns for a (project, period) cell-set.
+export interface BillingOverridePatch {
+  project_id: UUID;
+  period: string;
+  billing_due_date?: string;
+  bt_note?: string;
+  rebar?: string | null;
+  cmu?: string | null;
+  cpcf_sent?: string;
+  upuf_sent?: string;
+  billing_contact?: string;
+  payment_status?: string;
 }
