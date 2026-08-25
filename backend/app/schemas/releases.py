@@ -130,6 +130,10 @@ class ReleaseTrackerDetail(ReleaseTracker):
     """Full tracker with lines + unbilled entries."""
     lines: List[ReleaseLine] = []
     unbilled_entries: List[ReleaseUnbilledEntry] = []
+    # Ferrocrete's net income for this project/period:
+    #   invoice − Σ(sub checks) − Σ(prev-month unbilled)
+    # This is the value the Billing Summary's "Potential Net" column consumes.
+    ferrocrete_net: Optional[Decimal] = None
 
 
 # ─── WAIVERS ──────────────────────────────────────────────────────────

@@ -71,6 +71,15 @@ def get_release_tracker(
                .order("sort_order").execute())
     tracker["unbilled_entries"] = unb_res.data
 
+    # Ferrocrete Net = invoice − Σ(sub checks) − Σ(prev-month unbilled).
+    # Single source of truth for the Billing Summary's "Potential Net" column.
+    from ..core import billing_math as bm
+    total_checks = sum((bm.dec(ln.get("check_amount")) for ln in lines), Decimal("0"))
+    total_unbilled = sum((bm.dec(u.get("amount")) for u in (unb_res.data or [])), Decimal("0"))
+    tracker["ferrocrete_net"] = bm.ferrocrete_net(
+        tracker.get("invoice_amount"), total_checks, total_unbilled
+    )
+
     return tracker
 
 

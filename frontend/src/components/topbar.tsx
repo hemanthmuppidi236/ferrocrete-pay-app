@@ -66,6 +66,8 @@ export function Topbar({
   if (root === "pay-apps") {
     // The dashboard route
     crumbs = <span className="breadcrumb-active">Pay Applications</span>;
+  } else if (root === "billing-summary") {
+    crumbs = <span className="breadcrumb-active">Billing Summary</span>;
   } else if (root === "projects") {
     const inProject = segments.length > 1;
     if (!inProject) {
@@ -118,6 +120,7 @@ export function Topbar({
 
   const isPayApps = root === "pay-apps";
   const isProjects = root === "projects";
+  const isBilling = root === "billing-summary";
 
   return (
     <header className="topbar">
@@ -148,6 +151,12 @@ export function Topbar({
           className={`nav-pill ${isProjects ? "active" : ""}`}
         >
           Projects
+        </Link>
+        <Link
+          href="/billing-summary"
+          className={`nav-pill ${isBilling ? "active" : ""}`}
+        >
+          Billing Summary
         </Link>
 
         <button
