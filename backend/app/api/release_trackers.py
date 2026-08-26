@@ -105,6 +105,33 @@ def get_release_tracker(
         ln["is_overdue"] = rs.is_overdue(ln, ln["stage"])
         lines.append(ln)
 
+    # Ensure the project's catch-all non-prelim sub is on this tracker, so it
+    # shows on older trackers created before the default was introduced.
+    from ..core.release_carry_forward import (
+        ensure_default_nonprelim_sub, DEFAULT_NONPRELIM_NAME,
+    )
+    try:
+        default_sub_id = ensure_default_nonprelim_sub(sb, tracker["project_id"])
+        if default_sub_id and default_sub_id not in {ln["sub_id"] for ln in lines}:
+            ins = sb.table("release_lines").insert({
+                "release_tracker_id": str(tracker_id),
+                "sub_id": default_sub_id,
+                "billed_amount": "0", "check_amount": "0",
+                "conditional_status": "not_applicable",
+                "unconditional_status": "not_applicable",
+            }).execute()
+            if ins.data:
+                nl = ins.data[0]
+                nl["sub_name"] = DEFAULT_NONPRELIM_NAME
+                nl["parent_sub_id"] = None
+                nl["is_non_prelimed"] = True
+                nl["has_email"] = False
+                nl["stage"] = rs.derive_stage(nl, True)
+                nl["is_overdue"] = False
+                lines.append(nl)
+    except Exception:
+        pass  # concurrent insert (unique) or missing column — non-fatal
+
     # Most-recent reminder per line, for the "last emailed" note (WI-3).
     line_ids = [ln["id"] for ln in lines]
     if line_ids:
