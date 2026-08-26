@@ -158,10 +158,33 @@ async function request<T = unknown>(
   return parsed as T;
 }
 
+/** Fetch a binary file (e.g. an .xlsx export) with auth, as a Blob. */
+async function getBlob(path: string): Promise<Blob> {
+  if (!API_URL) throw new ApiError(0, "API URL not configured");
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { headers });
+  } catch (e) {
+    throw new NetworkError(
+      "The server may be cold-starting or unreachable. Wait a moment and try again.",
+      e
+    );
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, text || `HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
 export const api = {
   get<T = unknown>(path: string, opts?: RequestOptions) {
     return request<T>("GET", path, undefined, opts);
   },
+  getBlob,
   post<T = unknown>(path: string, body?: unknown, opts?: RequestOptions) {
     return request<T>("POST", path, body, opts);
   },

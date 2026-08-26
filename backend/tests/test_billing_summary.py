@@ -29,6 +29,40 @@ def test_net_zero_checks():
     assert bm.ferrocrete_net("2000", 0, 0) == Decimal("2000")
 
 
+def test_wi4_acceptance_row_25_20_2607():
+    # WI-4 acceptance: project 25-20, period 26-07 must match the Excel row.
+    pay_app = {
+        "status": "submitted",
+        "revised_contract": "6817800",
+        "total_completed_to_date": "2690156.60",
+        "retention_held": "269015.66",
+        "current_payment_due": "759839.04",
+    }
+    row = bm.assemble_row(
+        project={"id": "p", "project_no": "25-20", "name": "A Street",
+                 "retention_rate": "0.10"},
+        pay_app=pay_app, net=Decimal("178150.16"),
+        override={}, co_total=Decimal("0"), waiver_flags={},
+    )
+    assert row["revised_contract"] == Decimal("6817800")           # E
+    assert row["total_completed"] == Decimal("2690156.60")         # F
+    assert row["retention"] == Decimal("269015.66")                # G
+    assert row["balance_to_finish"] == Decimal("4127643.40")       # H = E − F
+    assert row["gross_billing"] == Decimal("844265.60")            # J
+    assert row["retention_rate"] == Decimal("0.10")                # K
+    assert row["billed_amount"] == Decimal("759839.04")            # L
+    assert row["potential_net"] == Decimal("178150.16")            # M
+
+
+def test_is_skip():
+    assert bm.is_skip("Skip") is True
+    assert bm.is_skip("SKIP") is True
+    assert bm.is_skip("  skip ") is True
+    assert bm.is_skip("25th") is False
+    assert bm.is_skip("") is False
+    assert bm.is_skip(None) is False
+
+
 # ─── gross_from_billed ────────────────────────────────────────────────
 
 def test_gross_inverts_retention():
@@ -74,11 +108,13 @@ def test_assemble_row_full():
         waiver_flags={"cp_cf": True, "up_uf": False},
     )
     assert row["job"] == "25-16 - Bungalows"
-    assert row["billed_amount"] == Decimal("2447877.85")            # K
-    assert row["gross_billing"] == Decimal("2719864.28")           # I = K/(1-J)
-    # H = E − F + G
-    assert row["balance_to_finish"] == Decimal("20436364.28") - Decimal("9302864.28") + Decimal("930286.44")
-    assert row["potential_net"] == Decimal("892065.37")            # L
+    assert row["billed_amount"] == Decimal("2447877.85")            # L
+    assert row["gross_billing"] == Decimal("2719864.28")           # J = L/(1-K)
+    # H = E − F ; I = E − F + G
+    assert row["balance_to_finish"] == Decimal("20436364.28") - Decimal("9302864.28")
+    assert row["balance_with_retention"] == \
+        Decimal("20436364.28") - Decimal("9302864.28") + Decimal("930286.44")
+    assert row["potential_net"] == Decimal("892065.37")            # M
     assert row["cpcf_sent"] == "Yes"      # auto from waiver
     assert row["upuf_sent"] == ""         # no UP/UF waiver
     assert row["billing_contact"] == "gc@example.com"

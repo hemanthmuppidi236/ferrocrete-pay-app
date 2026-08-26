@@ -45,6 +45,8 @@ export interface Project {
   substantial_completion_at: ISODate | null;
   notes: string | null;
   grace_days: number;
+  billing_due_rule: string | null;
+  billing_contact: string | null;
   created_by: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -329,7 +331,8 @@ export interface BillingSummaryRow {
   revised_contract: Money;
   total_completed: Money;
   retention: Money;
-  balance_to_finish: Money;
+  balance_to_finish: Money;         // H = E − F
+  balance_with_retention: Money;    // I = E − F + G
   gross_billing: Money;
   retention_rate: Money;
   billed_amount: Money;
@@ -357,11 +360,20 @@ export interface BillingSummaryTotals {
   gross_billing: Money;
   billed_amount: Money;
   potential_net: Money;
+  rebar: Money;
+  cmu: Money;
 }
 
 export interface BillingSummaryAccrued {
   net: Money;
   billed: Money;
+}
+
+export interface BillingSummaryFooter {
+  net_pct_of_billed: Money | null;
+  quickbooks_total: Money | null;
+  quickbooks_diff: Money | null;
+  running_total_billed: Money;
 }
 
 export interface BillingSummaryResponse {
@@ -370,6 +382,7 @@ export interface BillingSummaryResponse {
   rows: BillingSummaryRow[];
   totals: BillingSummaryTotals;
   accrued: BillingSummaryAccrued;
+  footer: BillingSummaryFooter;
 }
 
 // Editable manual columns for a (project, period) cell-set.

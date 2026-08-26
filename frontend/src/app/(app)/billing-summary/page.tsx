@@ -70,6 +70,67 @@ export default function BillingSummaryPage() {
     };
   }, [period]);
 
+  const [qbInput, setQbInput] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  // Keep the Quickbooks input in sync when the period's data loads.
+  useEffect(() => {
+    setQbInput(
+      data?.footer?.quickbooks_total != null ? String(data.footer.quickbooks_total) : ""
+    );
+  }, [data?.period, data?.footer?.quickbooks_total]);
+
+  async function saveQuickbooks(value: string) {
+    if (!data?.period) return;
+    try {
+      await api.patch("/billing-summary/quickbooks", {
+        period: data.period,
+        quickbooks_total: value.trim() === "" ? null : value.trim(),
+      });
+      // Reflect the new diff without a full reload.
+      const qb = value.trim() === "" ? null : value.trim();
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              footer: {
+                ...prev.footer,
+                quickbooks_total: qb,
+                quickbooks_diff:
+                  qb === null
+                    ? null
+                    : String(parseFloat(qb) - parseFloat(String(prev.totals.billed_amount || 0))),
+              },
+            }
+          : prev
+      );
+    } catch (e) {
+      setError(formatApiError(e));
+    }
+  }
+
+  async function exportXlsx() {
+    if (!data?.period) return;
+    setExporting(true);
+    try {
+      const blob = await api.getBlob(
+        `/billing-summary/export.xlsx?period=${encodeURIComponent(data.period)}`
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Billing_Summary_${data.period}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   // Persist one manual field for a (project, period) cell.
   async function saveOverride(
     projectId: string,
@@ -146,6 +207,13 @@ export default function BillingSummaryPage() {
               ))}
             </select>
           </label>
+          <button
+            className="btn"
+            onClick={exportXlsx}
+            disabled={exporting || !data?.period || rows.length === 0}
+          >
+            {exporting ? "Exporting…" : "Export Excel"}
+          </button>
         </div>
       </div>
 
@@ -181,7 +249,7 @@ export default function BillingSummaryPage() {
                 style={{
                   width: "100%",
                   borderCollapse: "collapse",
-                  minWidth: 1800,
+                  minWidth: 1920,
                   fontSize: 13,
                 }}
               >
@@ -193,6 +261,7 @@ export default function BillingSummaryPage() {
                     <Th right>Completed</Th>
                     <Th right>Retention</Th>
                     <Th right>Balance</Th>
+                    <Th right>Bal. W/Ret</Th>
                     <Th right>Gross</Th>
                     <Th right>Ret%</Th>
                     <Th right>Billed</Th>
@@ -224,11 +293,15 @@ export default function BillingSummaryPage() {
                       <Td right bold>{money(totals.total_completed)}</Td>
                       <Td right bold>{money(totals.retention)}</Td>
                       <Td right bold>{money(totals.balance_to_finish)}</Td>
+                      <Td />
                       <Td right bold>{money(totals.gross_billing)}</Td>
                       <Td />
                       <Td right bold>{money(totals.billed_amount)}</Td>
                       <Td right bold accent>{money(totals.potential_net)}</Td>
-                      <Td /><Td /><Td /><Td /><Td /><Td /><Td />
+                      <Td />
+                      <Td right bold>{money(totals.rebar)}</Td>
+                      <Td right bold>{money(totals.cmu)}</Td>
+                      <Td /><Td /><Td /><Td />
                     </tr>
                   )}
                 </tbody>
@@ -236,6 +309,60 @@ export default function BillingSummaryPage() {
             </div>
           )}
         </div>
+
+        {/* Footer reconciliation */}
+        {data && rows.length > 0 && (
+          <div
+            className="section-card glass"
+            style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: "14px 40px" }}
+          >
+            <FooterMetric
+              label="Net as % of Billed"
+              value={
+                data.footer.net_pct_of_billed != null
+                  ? `${(parseFloat(String(data.footer.net_pct_of_billed)) * 100).toFixed(1)}%`
+                  : "—"
+              }
+            />
+            <FooterMetric label="Running total to date (year)" value={money(data.footer.running_total_billed)} />
+            <div>
+              <div
+                style={{
+                  fontFamily: "var(--font-mono, 'IBM Plex Mono', monospace)",
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  color: "var(--text-faint)",
+                  marginBottom: 4,
+                }}
+              >
+                Quickbooks total
+              </div>
+              {canEdit ? (
+                <input
+                  className="input"
+                  type="number"
+                  step="0.01"
+                  value={qbInput}
+                  onChange={(e) => setQbInput(e.target.value)}
+                  onBlur={() => saveQuickbooks(qbInput)}
+                  placeholder="Enter"
+                  style={{ width: 160, fontFamily: "var(--font-mono, monospace)", fontSize: 14 }}
+                />
+              ) : (
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{money(data.footer.quickbooks_total)}</div>
+              )}
+            </div>
+            <FooterMetric
+              label="Quickbooks − Billed"
+              value={data.footer.quickbooks_diff != null ? money(data.footer.quickbooks_diff) : "—"}
+              accent={
+                data.footer.quickbooks_diff != null &&
+                Math.abs(parseFloat(String(data.footer.quickbooks_diff))) > 0.01
+              }
+            />
+          </div>
+        )}
 
         <div
           style={{
@@ -247,9 +374,10 @@ export default function BillingSummaryPage() {
           }}
         >
           Auto columns recompute from pay apps + release trackers. Potential Net =
-          invoice − sub checks − previous-month unbilled (the release tracker's
+          invoice − sub checks − previous-month unbilled (the release tracker&apos;s
           Ferrocrete Net). Editable columns: Due, BT, Rebar, CMU, CP/CF, UP/UF,
-          Contact, Payment Status.
+          Contact, Payment Status. Billing Due Date and Contact also default from
+          project settings; projects marked &quot;Skip&quot; sort to the bottom.
         </div>
       </div>
     </>
@@ -291,6 +419,7 @@ function Row({
       <Td right>{money(row.total_completed)}</Td>
       <Td right>{money(row.retention)}</Td>
       <Td right>{money(row.balance_to_finish)}</Td>
+      <Td right muted>{money(row.balance_with_retention)}</Td>
       <Td right>{money(row.gross_billing)}</Td>
       <Td right muted>{pct(row.retention_rate)}</Td>
       <Td right>{money(row.billed_amount)}</Td>
@@ -505,6 +634,42 @@ function StatCard({
     <div className={`glass dash-stat-card ${highlight ? "dash-stat-card-highlight" : ""}`}>
       <div className="dash-stat-eyebrow">{label}</div>
       <div className="dash-stat-value">{value}</div>
+    </div>
+  );
+}
+
+function FooterMetric({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontFamily: "var(--font-mono, 'IBM Plex Mono', monospace)",
+          fontSize: 10,
+          letterSpacing: 1,
+          textTransform: "uppercase",
+          color: "var(--text-faint)",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 18,
+          fontWeight: 600,
+          color: accent ? "var(--ferrocrete-red)" : "var(--text-primary)",
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
