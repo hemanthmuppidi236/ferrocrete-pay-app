@@ -47,6 +47,18 @@ class Sub(SubBase):
 
 # ─── RELEASE LINES ────────────────────────────────────────────────────
 
+# WI-2 per-line lifecycle enums.
+BillStatus = Literal["not_requested", "requested", "received", "not_applicable"]
+WaiverStatus = Literal[
+    "not_requested", "requested", "received", "verified", "sent_to_gc", "not_applicable"
+]
+CheckType = Literal["joint", "individual", "none"]
+Stage = Literal[
+    "n/a", "awaiting_bill", "awaiting_conditional", "awaiting_gc_payment",
+    "awaiting_check_release", "awaiting_unconditional", "complete",
+]
+
+
 class ReleaseLineUpdate(BaseModel):
     sub_id: UUID
     billed_amount: Decimal = Decimal("0.00")
@@ -54,6 +66,22 @@ class ReleaseLineUpdate(BaseModel):
     release_type: Optional[Literal["CP", "UP", "CF", "UF"]] = None
     exception: Optional[str] = None
     prev_month_status: Optional[str] = None
+    # Per-line lifecycle (WI-2). All optional so partial saves are fine.
+    bill_status: Optional[BillStatus] = None
+    bill_requested_at: Optional[date] = None
+    bill_received_at: Optional[date] = None
+    bill_due_at: Optional[date] = None
+    conditional_status: Optional[WaiverStatus] = None
+    conditional_received_at: Optional[date] = None
+    conditional_sent_at: Optional[date] = None
+    check_type: Optional[CheckType] = None
+    check_received_at: Optional[date] = None
+    check_sent_to_sub_at: Optional[date] = None
+    unconditional_status: Optional[WaiverStatus] = None
+    unconditional_requested_at: Optional[date] = None
+    unconditional_received_at: Optional[date] = None
+    unconditional_sent_at: Optional[date] = None
+    difference_note: Optional[str] = None
 
 
 class ReleaseLine(BaseModel):
@@ -62,11 +90,31 @@ class ReleaseLine(BaseModel):
     sub_id: UUID
     sub_name: Optional[str] = None        # joined for convenience
     parent_sub_id: Optional[UUID] = None  # joined for grouping
+    is_non_prelimed: bool = False         # joined; drives which stages apply
     billed_amount: Decimal
     check_amount: Decimal
     release_type: Optional[str] = None
     exception: Optional[str] = None
     prev_month_status: Optional[str] = None
+    # Per-line lifecycle (WI-2).
+    bill_status: BillStatus = "not_requested"
+    bill_requested_at: Optional[date] = None
+    bill_received_at: Optional[date] = None
+    bill_due_at: Optional[date] = None
+    conditional_status: WaiverStatus = "not_requested"
+    conditional_received_at: Optional[date] = None
+    conditional_sent_at: Optional[date] = None
+    check_type: Optional[CheckType] = None
+    check_received_at: Optional[date] = None
+    check_sent_to_sub_at: Optional[date] = None
+    unconditional_status: WaiverStatus = "not_requested"
+    unconditional_requested_at: Optional[date] = None
+    unconditional_received_at: Optional[date] = None
+    unconditional_sent_at: Optional[date] = None
+    difference_note: Optional[str] = None
+    # Derived, computed server-side on the detail payload.
+    stage: Optional[Stage] = None
+    is_overdue: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -124,6 +172,11 @@ class ReleaseTracker(BaseModel):
     notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    # Derived stage summary (WI-2) — populated on list/detail responses.
+    stage_counts: Optional[dict] = None
+    applicable_count: Optional[int] = None
+    complete_count: Optional[int] = None
+    overdue_count: Optional[int] = None
 
 
 class ReleaseTrackerDetail(ReleaseTracker):

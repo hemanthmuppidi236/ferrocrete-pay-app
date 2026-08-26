@@ -85,6 +85,25 @@ async def upload_waiver(
         res = sb.table("waivers").insert(payload).execute()
 
     waiver = res.data[0]
+
+    # WI-2: uploading a waiver auto-advances the matching per-line status to
+    # 'received' (only from a lower state — never downgrade verified/sent_to_gc)
+    # and stamps the date.
+    stamp = (received_at or date.today()).isoformat()
+    line = rl.data[0]
+    if waiver_type in ("CP", "CF"):
+        if (line.get("conditional_status") or "not_requested") in ("not_requested", "requested"):
+            sb.table("release_lines").update({
+                "conditional_status": "received",
+                "conditional_received_at": stamp,
+            }).eq("id", str(release_line_id)).execute()
+    elif waiver_type in ("UP", "UF"):
+        if (line.get("unconditional_status") or "not_requested") in ("not_requested", "requested"):
+            sb.table("release_lines").update({
+                "unconditional_status": "received",
+                "unconditional_received_at": stamp,
+            }).eq("id", str(release_line_id)).execute()
+
     audit.log(user.id, "waiver", waiver["id"], "uploaded",
               after=waiver,
               metadata={"release_line_id": str(release_line_id), "waiver_type": waiver_type})
@@ -145,4 +164,22 @@ def delete_waiver(
     except Exception:
         pass
     sb.table("waivers").delete().eq("id", str(waiver_id)).execute()
+
+    # WI-2: removing a waiver reverts the matching status back to 'requested'
+    # (only from 'received' — leave verified/sent_to_gc alone) and clears the date.
+    w = existing.data[0]
+    lq = (sb.table("release_lines")
+          .select("conditional_status, unconditional_status")
+          .eq("id", w["release_line_id"]).limit(1).execute())
+    if lq.data:
+        line = lq.data[0]
+        if w["waiver_type"] in ("CP", "CF") and line.get("conditional_status") == "received":
+            sb.table("release_lines").update({
+                "conditional_status": "requested", "conditional_received_at": None,
+            }).eq("id", w["release_line_id"]).execute()
+        elif w["waiver_type"] in ("UP", "UF") and line.get("unconditional_status") == "received":
+            sb.table("release_lines").update({
+                "unconditional_status": "requested", "unconditional_received_at": None,
+            }).eq("id", w["release_line_id"]).execute()
+
     audit.log(user.id, "waiver", str(waiver_id), "deleted", before=existing.data[0])

@@ -623,6 +623,7 @@ function ProjectEditPanel({
     project.substantial_completion_at ?? ""
   );
   const [notes, setNotes] = useState(project.notes ?? "");
+  const [graceDays, setGraceDays] = useState(String(project.grace_days ?? 14));
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -666,6 +667,10 @@ function ProjectEditPanel({
         subCompletionAt || null
       );
       setIfChanged("notes", project.notes ?? "", notes.trim() || null);
+      const graceNum = parseInt(graceDays, 10);
+      if (Number.isFinite(graceNum) && graceNum !== (project.grace_days ?? 14)) {
+        payload["grace_days"] = graceNum;
+      }
 
       if (Object.keys(payload).length === 0) {
         onCancel();
@@ -767,6 +772,17 @@ function ProjectEditPanel({
             className="input"
             value={subCompletionAt}
             onChange={(e) => setSubCompletionAt(e.target.value)}
+          />
+        </Field>
+
+        <Field label="Release grace days">
+          <input
+            type="number"
+            min="0"
+            className="input"
+            value={graceDays}
+            onChange={(e) => setGraceDays(e.target.value)}
+            placeholder="14"
           />
         </Field>
 
