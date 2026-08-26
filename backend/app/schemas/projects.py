@@ -35,6 +35,8 @@ class ProjectBase(BaseModel):
     grace_days: int = 14   # bill/CP-CF follow-up window (WI-2)
     billing_due_rule: Optional[str] = None   # Billing Summary col D default (WI-4)
     billing_contact: Optional[str] = None    # Billing Summary col S default (WI-4)
+    owner_name: Optional[str] = None         # for Ferrocrete's own waivers (WI-5)
+    owner_address: Optional[str] = None
 
 
 class ProjectCreate(ProjectBase):
@@ -59,6 +61,8 @@ class ProjectUpdate(BaseModel):
     grace_days: Optional[int] = None
     billing_due_rule: Optional[str] = None
     billing_contact: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_address: Optional[str] = None
 
 
 class Project(ProjectBase):

@@ -47,6 +47,8 @@ export interface Project {
   grace_days: number;
   billing_due_rule: string | null;
   billing_contact: string | null;
+  owner_name: string | null;
+  owner_address: string | null;
   created_by: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -141,6 +143,10 @@ export interface PayApp {
   // Retention billed this period (#6)
   retention_billed: boolean;
   retention_billed_amount: Money;
+
+  // Ferrocrete's own waivers sent (WI-5)
+  cpcf_sent_at: ISODate | null;
+  upuf_sent_at: ISODate | null;
 
   // Workflow timestamps + actors
   submitted_for_approval_at: ISODateTime | null;
