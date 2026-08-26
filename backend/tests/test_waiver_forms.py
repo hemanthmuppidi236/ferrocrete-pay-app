@@ -13,7 +13,7 @@ PROJECT = {
     "owner_name": "A Street Cedar Property Owner LLC",
     "owner_address": "151 West Huron St., Chicago, IL 60654",
 }
-PAY_APP = {"period": "26-07", "period_to": "2026-07-31",
+PAY_APP = {"period": "26-07", "period_to": "2026-07-31", "app_no": 6,
            "current_payment_due": "759839.04"}
 
 
@@ -89,9 +89,9 @@ def test_exceptions_by_type():
     assert not any("previously given a conditional waiver" in e for e in _b("UP")["exceptions"])
 
 
-def test_filename():
-    assert _b("CP")["filename"] == "25-20_26-07_Ferrocrete_CP.pdf"
-    assert _b("UF")["filename"] == "25-20_26-07_Ferrocrete_UF.pdf"
+def test_filename_includes_name_and_app_no():
+    assert _b("CP")["filename"] == "25-20_A Street_App6_Ferrocrete_CP.pdf"
+    assert _b("UF")["filename"] == "25-20_A Street_App6_Ferrocrete_UF.pdf"
 
 
 def test_no_em_dashes():
