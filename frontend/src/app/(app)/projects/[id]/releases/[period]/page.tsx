@@ -1451,10 +1451,10 @@ function StageStrip({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(172px, 1fr))",
-        gap: 12,
+        gridTemplateColumns: "repeat(auto-fit, minmax(184px, 1fr))",
+        gap: "18px 44px",
         alignItems: "start",
-        padding: "12px 14px",
+        padding: "16px 18px",
         background: "var(--accent-dim)",
         borderBottom: "1px solid var(--border)",
       }}
