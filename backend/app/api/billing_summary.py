@@ -310,10 +310,6 @@ _EXPORT_COLS = [
     ("Billed Amount", "billed_amount", "money"),
     ("Potential Net", "potential_net", "money"),
     ("BT", "bt_note", "text"),
-    ("Rebar", "rebar", "money"),
-    ("CMU", "cmu", "money"),
-    ("CP/CF Sent", "cpcf_sent", "text"),
-    ("UP/UF Sent", "upuf_sent", "text"),
     ("Billing Contact", "billing_contact", "text"),
     ("Payment/Billing Status", "payment_status", "text"),
 ]
