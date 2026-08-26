@@ -14,6 +14,9 @@ import type {
   BillStatus,
   WaiverStatus,
   CheckType,
+  ReminderTemplateKey,
+  ReminderPreview,
+  ReminderSendResult,
 } from "@/lib/types";
 import { fmtMoneyShort } from "@/lib/payAppMath";
 import { useCurrentUser } from "@/lib/useCurrentUser";
@@ -22,6 +25,7 @@ import {
   deriveStage,
   stepperModel,
   currentNodeColor,
+  REMINDER_TITLES,
   type NodeState,
 } from "@/lib/releaseStage";
 
@@ -50,6 +54,11 @@ export default function ReleaseTrackerDetailPage({
   const [lessMisc, setLessMisc] = useState("");
   const [addSubId, setAddSubId] = useState("");
   const [expandedSub, setExpandedSub] = useState<string | null>(null);
+  const [reminder, setReminder] = useState<{
+    templateKey: ReminderTemplateKey;
+    lineIds: string[];
+  } | null>(null);
+  const [remindFlash, setRemindFlash] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -180,6 +189,46 @@ export default function ReleaseTrackerDetailPage({
   const btSide = buildertrendNum + unbilledTotal - lessMiscNum;
   const spreadsheetSide = subsVendorsCheck + nonPrelimCheck + unbilledTotal;
   const discrepancy = btSide - spreadsheetSide;
+
+  function openReminder(templateKey: ReminderTemplateKey, lineIds: string[]) {
+    const ids = lineIds.filter(Boolean);
+    if (ids.length === 0) return;
+    setReminder({ templateKey, lineIds: ids });
+  }
+
+  // After a send, refresh so status advances + "last emailed" show.
+  async function afterReminderSent(result: ReminderSendResult) {
+    setReminder(null);
+    setRemindFlash(
+      `Sent ${result.sent}${result.skipped ? `, skipped ${result.skipped} with no email` : ""}` +
+        (result.failures.length ? `, ${result.failures.length} failed` : "")
+    );
+    setTimeout(() => setRemindFlash(null), 4000);
+    if (!tracker) return;
+    try {
+      const fresh = await api.get<ReleaseTrackerDetail>(`/release-trackers/${tracker.id}`);
+      setTracker(fresh);
+      setLines(fresh.lines ?? []);
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  // Bulk reminder eligibility, computed from the current lines.
+  const bulk = useMemo(() => {
+    const billReq: string[] = [], cpcfRem: string[] = [], upufReq: string[] = [], upufRem: string[] = [];
+    for (const l of lines) {
+      if (!l.id) continue; // unsaved
+      const np = l.is_non_prelimed;
+      const stage = deriveStage(l, np);
+      if (stage === "awaiting_bill") billReq.push(l.id);
+      if (!np && l.is_overdue && l.bill_status !== "not_requested" &&
+          ["not_requested", "requested"].includes(l.conditional_status)) cpcfRem.push(l.id);
+      if (!np && l.check_sent_to_sub_at && l.unconditional_status === "not_requested") upufReq.push(l.id);
+      if (!np && l.is_overdue && l.unconditional_status === "requested") upufRem.push(l.id);
+    }
+    return { billReq, cpcfRem, upufReq, upufRem };
+  }, [lines]);
 
   // Active subs not yet on this tracker — the "Add sub" dropdown source.
   const addableSubs = useMemo(() => {
@@ -612,6 +661,57 @@ export default function ReleaseTrackerDetailPage({
             </div>
           )}
 
+          {canEdit && lines.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 14,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily:
+                    "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  color: "var(--text-muted)",
+                  marginRight: 2,
+                }}
+              >
+                Email subs
+              </span>
+              <BulkRemindBtn
+                label="Request bill + CP/CF"
+                count={bulk.billReq.length}
+                onClick={() => openReminder("request_bill_cpcf", bulk.billReq)}
+              />
+              <BulkRemindBtn
+                label="CP/CF reminders"
+                count={bulk.cpcfRem.length}
+                onClick={() => openReminder("cpcf_overdue", bulk.cpcfRem)}
+              />
+              <BulkRemindBtn
+                label="Request UP/UF"
+                count={bulk.upufReq.length}
+                onClick={() => openReminder("request_upuf", bulk.upufReq)}
+              />
+              <BulkRemindBtn
+                label="UP/UF reminders"
+                count={bulk.upufRem.length}
+                onClick={() => openReminder("upuf_overdue", bulk.upufRem)}
+              />
+              {remindFlash && (
+                <span style={{ fontSize: 13, color: "var(--status-green)", marginLeft: 4 }}>
+                  ✓ {remindFlash}
+                </span>
+              )}
+            </div>
+          )}
+
           {lines.length === 0 ? (
             <div
               style={{
@@ -644,6 +744,7 @@ export default function ReleaseTrackerDetailPage({
                 onChange={updateLine}
                 onRemove={removeLine}
                 onWaiverChanged={handleWaiverChanged}
+                onRemind={openReminder}
                 onError={setError}
               />
               <StageTable
@@ -659,6 +760,7 @@ export default function ReleaseTrackerDetailPage({
                 onChange={updateLine}
                 onRemove={removeLine}
                 onWaiverChanged={handleWaiverChanged}
+                onRemind={openReminder}
                 onError={setError}
               />
               {Math.abs(billedTotal - invoiceAmountNum) > 0.01 && (
@@ -817,6 +919,17 @@ export default function ReleaseTrackerDetailPage({
           </div>
         </div>
       </div>
+
+      {reminder && tracker && (
+        <ReminderModal
+          trackerId={tracker.id}
+          templateKey={reminder.templateKey}
+          lineIds={reminder.lineIds}
+          onClose={() => setReminder(null)}
+          onSent={afterReminderSent}
+          onError={setError}
+        />
+      )}
     </>
   );
 }
@@ -854,6 +967,7 @@ function StageTable({
   onChange,
   onRemove,
   onWaiverChanged,
+  onRemind,
   onError,
 }: {
   title: string;
@@ -866,6 +980,7 @@ function StageTable({
   onChange: (subId: string, patch: Partial<ReleaseLine>) => void;
   onRemove: (subId: string) => void;
   onWaiverChanged: WaiverChanged;
+  onRemind: (templateKey: ReminderTemplateKey, lineIds: string[]) => void;
   onError: (msg: string) => void;
 }) {
   if (rows.length === 0) return null;
@@ -923,6 +1038,7 @@ function StageTable({
                 onChange={(patch) => onChange(line.sub_id, patch)}
                 onRemove={() => onRemove(line.sub_id)}
                 onWaiverChanged={onWaiverChanged}
+                onRemind={onRemind}
                 onError={onError}
               />
             ))}
@@ -951,6 +1067,7 @@ function StageRow({
   onChange,
   onRemove,
   onWaiverChanged,
+  onRemind,
   onError,
 }: {
   line: ReleaseLine;
@@ -963,6 +1080,7 @@ function StageRow({
   onChange: (patch: Partial<ReleaseLine>) => void;
   onRemove: () => void;
   onWaiverChanged: WaiverChanged;
+  onRemind: (templateKey: ReminderTemplateKey, lineIds: string[]) => void;
   onError: (msg: string) => void;
 }) {
   const saved = Boolean(line.id);
@@ -1110,6 +1228,7 @@ function StageRow({
               waiverIndex={waiverIndex}
               onChange={onChange}
               onWaiverChanged={onWaiverChanged}
+              onRemind={onRemind}
               onError={onError}
             />
           </td>
@@ -1261,6 +1380,7 @@ function StageStrip({
   waiverIndex,
   onChange,
   onWaiverChanged,
+  onRemind,
   onError,
 }: {
   line: ReleaseLine;
@@ -1270,8 +1390,11 @@ function StageStrip({
   waiverIndex: Map<string, Waiver>;
   onChange: (patch: Partial<ReleaseLine>) => void;
   onWaiverChanged: WaiverChanged;
+  onRemind: (templateKey: ReminderTemplateKey, lineIds: string[]) => void;
   onError: (msg: string) => void;
 }) {
+  const canEmail = canEdit && saved && line.has_email;
+  const remind = (k: Parameters<typeof onRemind>[0]) => onRemind(k, [line.id]);
   return (
     <div
       style={{
@@ -1283,6 +1406,24 @@ function StageStrip({
         borderBottom: "1px solid var(--border)",
       }}
     >
+      {/* Status banner: no-email warning + last emailed */}
+      {(saved && !line.has_email) || line.last_reminder ? (
+        <div style={{ flex: "1 1 100%", display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 2 }}>
+          {saved && !line.has_email && (
+            <span style={{ fontSize: 12, color: "var(--status-amber)" }}>
+              ⚠ No email on file for this sub — add one on{" "}
+              <span style={{ textDecoration: "underline" }}>Manage subs</span> to email reminders.
+            </span>
+          )}
+          {line.last_reminder && (
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Last emailed: {mdShort(line.last_reminder.sent_at)} (
+              {REMINDER_TITLES[line.last_reminder.template_key]})
+            </span>
+          )}
+        </div>
+      ) : null}
+
       {/* Bill */}
       <StageGroup title="Bill" status={line.bill_status}>
         <DateLine label="requested" value={line.bill_requested_at} />
@@ -1307,6 +1448,14 @@ function StageStrip({
             <MarkBtn onClick={() => onChange({ bill_status: "not_applicable" })}>
               N/A
             </MarkBtn>
+          </div>
+        )}
+        {canEmail && line.bill_status !== "received" && line.bill_status !== "not_applicable" && (
+          <div style={stripBtnRow}>
+            <MarkBtn onClick={() => remind("request_bill_cpcf")}>✉ Request bill + CP/CF</MarkBtn>
+            {line.is_overdue && !nonPrelimed && (
+              <MarkBtn onClick={() => remind("cpcf_overdue")}>✉ CP/CF reminder</MarkBtn>
+            )}
           </div>
         )}
       </StageGroup>
@@ -1398,6 +1547,16 @@ function StageStrip({
               >
                 Sent to GC
               </MarkBtn>
+            </div>
+          )}
+          {canEmail && line.check_sent_to_sub_at && line.unconditional_status === "not_requested" && (
+            <div style={stripBtnRow}>
+              <MarkBtn onClick={() => remind("request_upuf")}>✉ Request UP/UF</MarkBtn>
+            </div>
+          )}
+          {canEmail && line.unconditional_status === "requested" && line.is_overdue && (
+            <div style={stripBtnRow}>
+              <MarkBtn onClick={() => remind("upuf_overdue")}>✉ UP/UF reminder</MarkBtn>
             </div>
           )}
         </StageGroup>
@@ -1725,6 +1884,219 @@ function WaiverSlot({
 }
 
 // ─── Other small components ──────────────────────────────────────────
+
+const MONO =
+  "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace";
+
+function BulkRemindBtn({
+  label,
+  count,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={count === 0}
+      className="btn"
+      style={{ fontSize: 12, padding: "4px 10px", opacity: count === 0 ? 0.45 : 1 }}
+      title={count === 0 ? "No eligible subs" : `${count} sub${count === 1 ? "" : "s"}`}
+    >
+      ✉ {label}
+      {count > 0 && <span style={{ fontFamily: MONO, color: "var(--text-muted)" }}> · {count}</span>}
+    </button>
+  );
+}
+
+function ReminderModal({
+  trackerId,
+  templateKey,
+  lineIds,
+  onClose,
+  onSent,
+  onError,
+}: {
+  trackerId: string;
+  templateKey: ReminderTemplateKey;
+  lineIds: string[];
+  onClose: () => void;
+  onSent: (r: ReminderSendResult) => void;
+  onError: (msg: string) => void;
+}) {
+  const [preview, setPreview] = useState<ReminderPreview | null>(null);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await api.post<ReminderPreview>(
+          `/release-trackers/${trackerId}/reminders/preview`,
+          { template_key: templateKey, line_ids: lineIds }
+        );
+        if (cancelled) return;
+        setPreview(p);
+        setSubject(p.subject);
+        setBody(p.body);
+      } catch (e) {
+        if (!cancelled) {
+          onError(formatApiError(e));
+          onClose();
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trackerId, templateKey, lineIds, onClose, onError]);
+
+  async function send() {
+    setSending(true);
+    try {
+      const r = await api.post<ReminderSendResult>(
+        `/release-trackers/${trackerId}/reminders/send`,
+        { template_key: templateKey, line_ids: lineIds, subject, body }
+      );
+      onSent(r);
+    } catch (e) {
+      onError(formatApiError(e));
+      setSending(false);
+    }
+  }
+
+  const recipients = preview?.recipients ?? [];
+  const skipped = preview?.skipped ?? [];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.45)",
+        display: "grid",
+        placeItems: "center",
+        padding: 20,
+        zIndex: 100,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="glass"
+        style={{
+          background: "var(--surface, var(--bg))",
+          border: "1px solid var(--border-strong)",
+          borderRadius: "var(--radius)",
+          width: "min(680px, 100%)",
+          maxHeight: "88vh",
+          overflowY: "auto",
+          padding: 22,
+          boxShadow: "0 20px 60px rgba(0,0,0,.35)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+          <h2 className="section-title" style={{ margin: 0 }}>
+            {REMINDER_TITLES[templateKey]}
+          </h2>
+          <span style={{ fontFamily: MONO, fontSize: 12, color: "var(--text-muted)" }}>
+            {recipients.length} recipient{recipients.length === 1 ? "" : "s"}
+            {skipped.length ? ` · ${skipped.length} skipped` : ""}
+          </span>
+        </div>
+
+        {loading ? (
+          <div style={{ color: "var(--text-muted)", padding: "20px 0" }}>Composing…</div>
+        ) : (
+          <>
+            <div style={{ marginTop: 12 }}>
+              <label className="form-label">Subject</label>
+              <input
+                type="text"
+                className="input"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+              />
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label className="form-label">Body</label>
+              <textarea
+                className="input"
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                rows={12}
+                style={{ fontFamily: "inherit", resize: "vertical", lineHeight: 1.5 }}
+              />
+              {body.includes("{sub}") && (
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  <code>{"{sub}"}</code> is replaced with each subcontractor&apos;s name.
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>
+                To
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {recipients.map((r) => (
+                  <span
+                    key={r.release_line_id}
+                    title={r.cc ? `cc ${r.cc}` : undefined}
+                    style={{
+                      fontSize: 12.5,
+                      background: "var(--accent-dim)",
+                      border: "1px solid var(--accent-border)",
+                      borderRadius: 6,
+                      padding: "3px 9px",
+                    }}
+                  >
+                    {r.sub_name}{" "}
+                    <span style={{ color: "var(--text-muted)", fontFamily: MONO, fontSize: 11 }}>
+                      {r.to}
+                    </span>
+                    {r.cc ? <span style={{ color: "var(--text-faint)" }}> +cc</span> : null}
+                  </span>
+                ))}
+                {recipients.length === 0 && (
+                  <span style={{ color: "var(--status-amber)", fontSize: 13 }}>
+                    None of these subs have an email on file.
+                  </span>
+                )}
+              </div>
+              {skipped.length > 0 && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+                  Skipped (no email): {skipped.map((s) => s.sub_name).join(", ")}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button
+                onClick={send}
+                disabled={sending || recipients.length === 0}
+                className="btn btn-accent"
+              >
+                {sending ? "Sending…" : `Send to ${recipients.length}`}
+              </button>
+              <button onClick={onClose} disabled={sending} className="btn btn-ghost">
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ReconLine({
   label,

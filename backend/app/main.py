@@ -20,7 +20,7 @@ from .api import (
     me, projects, sov_lines, change_orders,
     pay_apps, subs, release_trackers, waivers,
     artifacts, email_outbox, import_excel, admin,
-    billing_summary,
+    billing_summary, reminders,
 )
 
 
@@ -126,6 +126,7 @@ app.include_router(pay_apps.router)
 app.include_router(release_trackers.router)
 app.include_router(waivers.router)
 app.include_router(billing_summary.router)
+app.include_router(reminders.router)
 app.include_router(artifacts.router)
 app.include_router(email_outbox.router)
 app.include_router(import_excel.router)

@@ -438,6 +438,8 @@ function SubForm({
   const [contactName, setContactName] = useState(initial?.contact_name ?? "");
   const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? "");
   const [contactPhone, setContactPhone] = useState(initial?.contact_phone ?? "");
+  const [billingEmail, setBillingEmail] = useState(initial?.billing_email ?? "");
+  const [billingCc, setBillingCc] = useState(initial?.billing_cc ?? "");
   const [isNonPrelimed, setIsNonPrelimed] = useState(
     initial?.is_non_prelimed ?? false
   );
@@ -474,6 +476,8 @@ function SubForm({
           initial!.contact_phone ?? "",
           contactPhone.trim() || null
         );
+        setIf("billing_email", initial!.billing_email ?? "", billingEmail.trim() || null);
+        setIf("billing_cc", initial!.billing_cc ?? "", billingCc.trim() || null);
         setIf("is_non_prelimed", initial!.is_non_prelimed, isNonPrelimed);
         setIf("active", initial!.active, active);
 
@@ -498,6 +502,8 @@ function SubForm({
         if (contactName.trim()) payload.contact_name = contactName.trim();
         if (contactEmail.trim()) payload.contact_email = contactEmail.trim();
         if (contactPhone.trim()) payload.contact_phone = contactPhone.trim();
+        if (billingEmail.trim()) payload.billing_email = billingEmail.trim();
+        if (billingCc.trim()) payload.billing_cc = billingCc.trim();
 
         await api.post(`/projects/${projectId}/subs`, payload);
       }
@@ -624,13 +630,33 @@ function SubForm({
           />
         </div>
 
-        <div style={{ gridColumn: "span 2" }}>
+        <div>
           <label className="form-label">Contact phone</label>
           <input
             type="tel"
             className="input"
             value={contactPhone}
             onChange={(e) => setContactPhone(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="form-label">Billing email</label>
+          <input
+            type="email"
+            className="input"
+            value={billingEmail}
+            onChange={(e) => setBillingEmail(e.target.value)}
+            placeholder="Used for reminders (falls back to contact email)"
+          />
+        </div>
+        <div style={{ gridColumn: "span 2" }}>
+          <label className="form-label">Billing CC</label>
+          <input
+            type="email"
+            className="input"
+            value={billingCc}
+            onChange={(e) => setBillingCc(e.target.value)}
+            placeholder="Optional cc on reminder emails"
           />
         </div>
       </div>
