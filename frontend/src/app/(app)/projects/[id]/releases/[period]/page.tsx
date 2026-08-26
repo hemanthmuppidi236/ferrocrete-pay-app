@@ -617,6 +617,19 @@ export default function ReleaseTrackerDetailPage({
                   </div>
                 )}
               </div>
+              {tracker.retention_billed_amount != null &&
+                parseFloat(String(tracker.retention_billed_amount)) !== 0 && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      fontSize: 13,
+                      color: "var(--status-blue)",
+                    }}
+                  >
+                    Retention billed this period:{" "}
+                    <strong>{fmtMoneyShort(tracker.retention_billed_amount)}</strong>
+                  </div>
+                )}
             </div>
           </div>
         </div>

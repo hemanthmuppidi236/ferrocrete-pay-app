@@ -140,6 +140,7 @@ def assemble_row(
         "retention_rate": rate,
         "billed_amount": billed,
         "potential_net": net,
+        "retention_billed": dec(pay_app.get("retention_billed_amount")) if pay_app else Decimal("0"),
 
         # Manual (auto default + override). Billing due date and contact default
         # to the project-level settings; a per-period override still wins.
@@ -188,4 +189,5 @@ def summarize_totals(rows: list) -> dict:
         "potential_net": s("potential_net"),
         "rebar": s("rebar"),
         "cmu": s("cmu"),
+        "retention_billed": s("retention_billed"),
     }

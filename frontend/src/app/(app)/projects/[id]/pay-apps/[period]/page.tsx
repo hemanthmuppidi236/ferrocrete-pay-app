@@ -497,6 +497,12 @@ export default function PayAppDraftPage({
           <div style={{ marginTop: 24, fontSize: 12, color: "var(--text-faint)", fontFamily: "IBM Plex Mono, monospace", letterSpacing: "0.5px" }}>
             Total schedule of values: <strong>{fmtMoneyShort(totalRow)}</strong>
           </div>
+
+          <RetentionBillingCard
+            payApp={payApp}
+            canEdit={role === "admin" || role === "accountant" || role === "pe"}
+            onError={(m) => setWorkflowError(m)}
+          />
         </div>
 
         {/* G702 Live Preview Sidebar */}
@@ -639,6 +645,91 @@ function PreviewLine({
         {sign}
         {fmtMoney(value)}
       </div>
+    </div>
+  );
+}
+
+function RetentionBillingCard({
+  payApp,
+  canEdit,
+  onError,
+}: {
+  payApp: PayAppDetail;
+  canEdit: boolean;
+  onError: (msg: string) => void;
+}) {
+  const [billed, setBilled] = useState(payApp.retention_billed);
+  const [amount, setAmount] = useState(
+    payApp.retention_billed_amount &&
+      parseFloat(String(payApp.retention_billed_amount)) !== 0
+      ? String(payApp.retention_billed_amount)
+      : ""
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function save(nextBilled: boolean, nextAmount: string) {
+    setSaving(true);
+    try {
+      await api.patch(`/pay-apps/${payApp.id}`, {
+        retention_billed: nextBilled,
+        retention_billed_amount: nextBilled
+          ? nextAmount.trim() === ""
+            ? "0"
+            : nextAmount.trim()
+          : "0",
+      });
+    } catch (e) {
+      onError(formatApiError(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="glass"
+      style={{ marginTop: 20, padding: "14px 18px", maxWidth: 520 }}
+    >
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          fontSize: 14,
+          cursor: canEdit ? "pointer" : "default",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={billed}
+          disabled={!canEdit || saving}
+          onChange={(e) => {
+            setBilled(e.target.checked);
+            save(e.target.checked, amount);
+          }}
+        />
+        Was retention billed this period?
+      </label>
+      {billed && (
+        <div style={{ marginTop: 12 }}>
+          <label className="form-label">Retention billed amount</label>
+          <input
+            type="number"
+            step="0.01"
+            className="input"
+            value={amount}
+            disabled={!canEdit || saving}
+            onChange={(e) => setAmount(e.target.value)}
+            onBlur={() => save(true, amount)}
+            placeholder="0.00"
+            style={{ maxWidth: 220 }}
+          />
+          <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
+            Shows on the Billing Summary (Retention Billed) and as a provision on
+            this period&apos;s release tracker.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

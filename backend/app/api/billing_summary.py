@@ -71,10 +71,11 @@ def get_billing_summary(
             "totals": {k: zero for k in
                        ["revised_contract", "total_completed", "retention",
                         "balance_to_finish", "gross_billing", "billed_amount",
-                        "potential_net", "rebar", "cmu"]},
+                        "potential_net", "rebar", "cmu", "retention_billed"]},
             "accrued": {"net": zero, "billed": zero},
             "footer": {"net_pct_of_billed": None, "quickbooks_total": None,
-                       "quickbooks_diff": None, "running_total_billed": zero},
+                       "quickbooks_diff": None, "running_total_billed": zero,
+                       "billed_incl_retention": zero, "net_incl_retention": zero},
         }
 
     # ─── Projects (non-deleted) ───
@@ -99,10 +100,18 @@ def get_billing_summary(
     )
 
     # ─── Pay apps up to and including the period ───
-    pay_apps_le = sb.table("pay_apps").select(
-        "id, project_id, period, due_date, status, revised_contract, "
-        "total_completed_to_date, retention_held, current_payment_due"
-    ).lte("period", period).execute().data or []
+    try:
+        pay_apps_le = sb.table("pay_apps").select(
+            "id, project_id, period, due_date, status, revised_contract, "
+            "total_completed_to_date, retention_held, current_payment_due, "
+            "retention_billed_amount"
+        ).lte("period", period).execute().data or []
+    except Exception:
+        # Migration 008 not applied yet — fall back without retention billed.
+        pay_apps_le = sb.table("pay_apps").select(
+            "id, project_id, period, due_date, status, revised_contract, "
+            "total_completed_to_date, retention_held, current_payment_due"
+        ).lte("period", period).execute().data or []
     payapp_by_project = {r["project_id"]: r for r in pay_apps_le if r.get("period") == period}
     accrued_billed = sum((bm.dec(r.get("current_payment_due")) for r in pay_apps_le), Decimal("0"))
 
@@ -202,6 +211,7 @@ def get_billing_summary(
 
     billed_total = totals["billed_amount"]
     net_total = totals["potential_net"]
+    ret_billed_total = totals.get("retention_billed", Decimal("0"))
     net_pct = (net_total / billed_total) if billed_total else None
     qb_diff = (qb_total - billed_total) if qb_total is not None else None
 
@@ -225,6 +235,8 @@ def get_billing_summary(
             "quickbooks_total": qb_total,
             "quickbooks_diff": qb_diff,
             "running_total_billed": running_billed,
+            "billed_incl_retention": billed_total + ret_billed_total,
+            "net_incl_retention": net_total + ret_billed_total,
         },
     }
 
@@ -309,13 +321,14 @@ _EXPORT_COLS = [
     ("Retention %", "retention_rate", "pct"),
     ("Billed Amount", "billed_amount", "money"),
     ("Potential Net", "potential_net", "money"),
+    ("Retention Billed", "retention_billed", "money"),
     ("BT", "bt_note", "text"),
     ("Billing Contact", "billing_contact", "text"),
     ("Payment/Billing Status", "payment_status", "text"),
 ]
 _TOTALS_KEYS = {
     "revised_contract", "total_completed", "retention", "balance_to_finish",
-    "gross_billing", "billed_amount", "potential_net", "rebar", "cmu",
+    "gross_billing", "billed_amount", "potential_net", "retention_billed",
 }
 
 

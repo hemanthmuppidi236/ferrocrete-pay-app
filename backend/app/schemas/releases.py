@@ -193,6 +193,8 @@ class ReleaseTrackerDetail(ReleaseTracker):
     #   invoice − Σ(sub checks) − Σ(prev-month unbilled)
     # This is the value the Billing Summary's "Potential Net" column consumes.
     ferrocrete_net: Optional[Decimal] = None
+    # Retention billed on the linked pay app this period (provision, #6).
+    retention_billed_amount: Optional[Decimal] = None
 
 
 # ─── WAIVERS ──────────────────────────────────────────────────────────

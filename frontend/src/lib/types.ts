@@ -138,6 +138,10 @@ export interface PayApp {
   current_payment_due: Money;
   balance_to_finish: Money;
 
+  // Retention billed this period (#6)
+  retention_billed: boolean;
+  retention_billed_amount: Money;
+
   // Workflow timestamps + actors
   submitted_for_approval_at: ISODateTime | null;
   submitted_for_approval_by: UUID | null;
@@ -303,6 +307,7 @@ export interface ReleaseTrackerDetail extends ReleaseTracker {
   // Ferrocrete's net income = invoice − Σ(sub checks) − Σ(prev-month unbilled).
   // Feeds the Billing Summary's "Potential Net" column.
   ferrocrete_net: Money | null;
+  retention_billed_amount: Money | null;
 }
 
 export interface Waiver {
@@ -337,6 +342,7 @@ export interface BillingSummaryRow {
   retention_rate: Money;
   billed_amount: Money;
   potential_net: Money | null;
+  retention_billed: Money;
 
   // Manual (auto-defaulted, editable overrides)
   billing_due_date: string;
@@ -362,6 +368,7 @@ export interface BillingSummaryTotals {
   potential_net: Money;
   rebar: Money;
   cmu: Money;
+  retention_billed: Money;
 }
 
 export interface BillingSummaryAccrued {
@@ -374,6 +381,8 @@ export interface BillingSummaryFooter {
   quickbooks_total: Money | null;
   quickbooks_diff: Money | null;
   running_total_billed: Money;
+  billed_incl_retention: Money;
+  net_incl_retention: Money;
 }
 
 export interface BillingSummaryResponse {

@@ -249,7 +249,7 @@ export default function BillingSummaryPage() {
                 style={{
                   width: "100%",
                   borderCollapse: "collapse",
-                  minWidth: 1500,
+                  minWidth: 1640,
                   fontSize: 13,
                 }}
               >
@@ -266,6 +266,7 @@ export default function BillingSummaryPage() {
                     <Th right>Retention %</Th>
                     <Th right>Billed Amount</Th>
                     <Th right>Potential Net</Th>
+                    <Th right>Retention Billed</Th>
                     <Th>BT</Th>
                     <Th>Billing Contact</Th>
                     <Th>Payment/Billing Status</Th>
@@ -294,6 +295,7 @@ export default function BillingSummaryPage() {
                       <Td />
                       <Td right bold>{money(totals.billed_amount)}</Td>
                       <Td right bold accent>{money(totals.potential_net)}</Td>
+                      <Td right bold>{money(totals.retention_billed)}</Td>
                       <Td /><Td /><Td />
                     </tr>
                   )}
@@ -318,6 +320,12 @@ export default function BillingSummaryPage() {
               }
             />
             <FooterMetric label="Running total to date (year)" value={money(data.footer.running_total_billed)} />
+            {parseFloat(String(data.totals.retention_billed || 0)) !== 0 && (
+              <>
+                <FooterMetric label="Billed incl. retention" value={money(data.footer.billed_incl_retention)} />
+                <FooterMetric label="Net incl. retention" value={money(data.footer.net_incl_retention)} />
+              </>
+            )}
             <div>
               <div
                 style={{
@@ -420,6 +428,9 @@ function Row({
         <span style={netNegative ? { color: "var(--ferrocrete-red)" } : undefined}>
           {money(row.potential_net)}
         </span>
+      </Td>
+      <Td right muted={parseFloat(String(row.retention_billed || 0)) === 0}>
+        {parseFloat(String(row.retention_billed || 0)) === 0 ? "—" : money(row.retention_billed)}
       </Td>
       <EditCell
         value={row.bt_note}
