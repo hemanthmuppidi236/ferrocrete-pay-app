@@ -28,9 +28,29 @@ from ..core.excel_pay_app import generate_and_store_pay_app_excel
 from ..core.pdf_pay_app import generate_and_store_pay_app_pdf
 from ..core.excel_release_tracker import generate_and_store_release_tracker_excel
 from ..core.pdf_waivers import generate_waiver_pdf
+from ..core.tracker_export import generate_tracker_export_xlsx
 from ..schemas.pay_apps import GeneratedFile
 
 router = APIRouter(tags=["artifacts"])
+
+
+@router.get("/release-trackers/{tracker_id}/export.xlsx")
+def export_release_tracker(
+    tracker_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Stream the tracker as an Excel sheet (Subs/Vendors + Difference, Non-
+    Prelimed, Unbilled, Ferrocrete Net, Buildertrend reconciliation) with live
+    formulas, laid out like the reference tracker sheet."""
+    try:
+        xlsx_bytes, filename = generate_tracker_export_xlsx(str(tracker_id))
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ─── FERROCRETE'S OWN WAIVERS (WI-5) ──────────────────────────────────

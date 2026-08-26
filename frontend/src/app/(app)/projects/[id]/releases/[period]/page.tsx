@@ -419,6 +419,27 @@ export default function ReleaseTrackerDetailPage({
     }
   }
 
+  const [exporting, setExporting] = useState(false);
+  async function exportXlsx() {
+    if (!tracker) return;
+    setExporting(true);
+    try {
+      const blob = await api.getBlob(`/release-trackers/${tracker.id}/export.xlsx`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${project?.project_no ?? ""}_${period}_Release_Tracker.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function toggleWorkflow(key: keyof typeof workflowKeys) {
     if (!tracker) return;
     try {
@@ -494,8 +515,11 @@ export default function ReleaseTrackerDetailPage({
             </Link>
           </div>
         </div>
-        {canEdit && (
-          <div className="page-actions">
+        <div className="page-actions">
+          <button onClick={exportXlsx} disabled={exporting} className="btn">
+            {exporting ? "Exporting…" : "Export Excel"}
+          </button>
+          {canEdit && (
             <button
               onClick={saveAll}
               disabled={saving}
@@ -503,8 +527,8 @@ export default function ReleaseTrackerDetailPage({
             >
               {saving ? "Saving…" : savedFlash ? "✓ Saved" : "Save changes"}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="page-content">
