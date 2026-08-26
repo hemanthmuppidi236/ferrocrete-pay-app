@@ -182,6 +182,8 @@ export interface Sub {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
+  billing_email: string | null;
+  billing_cc: string | null;
   is_non_prelimed: boolean;
   sort_order: number;
   active: boolean;
@@ -229,8 +231,35 @@ export interface ReleaseLine {
   // Derived, from the server
   stage: Stage | null;
   is_overdue: boolean;
+  has_email: boolean;
+  last_reminder: { template_key: ReminderTemplateKey; sent_at: ISODateTime } | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+}
+
+export type ReminderTemplateKey =
+  | "request_bill_cpcf" | "cpcf_overdue" | "request_upuf" | "upuf_overdue";
+
+export interface ReminderRecipient {
+  release_line_id: UUID;
+  sub_name: string | null;
+  to: string | null;
+  cc: string | null;
+  has_email: boolean;
+}
+
+export interface ReminderPreview {
+  template_key: ReminderTemplateKey;
+  subject: string;
+  body: string;
+  recipients: ReminderRecipient[];
+  skipped: ReminderRecipient[];
+}
+
+export interface ReminderSendResult {
+  sent: number;
+  skipped: number;
+  failures: { release_line_id: UUID; error: string }[];
 }
 
 export interface ReleaseUnbilledEntry {

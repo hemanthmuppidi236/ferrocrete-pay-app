@@ -4,7 +4,14 @@
  * server-side derivation in backend/app/core/release_stage.py.
  */
 
-import type { Stage, ReleaseTracker, ReleaseLine } from "./types";
+import type { Stage, ReleaseTracker, ReleaseLine, ReminderTemplateKey } from "./types";
+
+export const REMINDER_TITLES: Record<ReminderTemplateKey, string> = {
+  request_bill_cpcf: "Request bill + CP/CF",
+  cpcf_overdue: "CP/CF reminder",
+  request_upuf: "Request UP/UF",
+  upuf_overdue: "UP/UF reminder",
+};
 
 const CONDITIONAL_DONE = ["received", "verified", "sent_to_gc", "not_applicable"];
 const UNCONDITIONAL_DONE = ["sent_to_gc", "not_applicable"];

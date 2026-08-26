@@ -87,9 +87,10 @@ def get_release_tracker(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Release tracker not found")
     tracker = rt.data[0]
 
-    # Load lines with sub names + non-prelimed flag joined
+    # Load lines with sub names + non-prelimed flag + email fields joined
     lines_res = (sb.table("release_lines")
-                 .select("*, subs(name, parent_sub_id, is_non_prelimed)")
+                 .select("*, subs(name, parent_sub_id, is_non_prelimed, "
+                         "billing_email, contact_email)")
                  .eq("release_tracker_id", str(tracker_id))
                  .execute())
     lines = []
@@ -98,10 +99,29 @@ def get_release_tracker(
         ln["sub_name"] = sub_data.get("name")
         ln["parent_sub_id"] = sub_data.get("parent_sub_id")
         ln["is_non_prelimed"] = bool(sub_data.get("is_non_prelimed"))
+        ln["has_email"] = bool(sub_data.get("billing_email") or sub_data.get("contact_email"))
         # Derived per-line stage + overdue (WI-2).
         ln["stage"] = rs.derive_stage(ln, ln["is_non_prelimed"])
         ln["is_overdue"] = rs.is_overdue(ln, ln["stage"])
         lines.append(ln)
+
+    # Most-recent reminder per line, for the "last emailed" note (WI-3).
+    line_ids = [ln["id"] for ln in lines]
+    if line_ids:
+        try:
+            rem = (sb.table("release_line_reminders")
+                   .select("release_line_id, template_key, sent_at")
+                   .in_("release_line_id", line_ids)
+                   .order("sent_at", desc=True).execute())
+            latest = {}
+            for r in (rem.data or []):
+                latest.setdefault(r["release_line_id"],
+                                  {"template_key": r["template_key"], "sent_at": r["sent_at"]})
+            for ln in lines:
+                ln["last_reminder"] = latest.get(ln["id"])
+        except Exception:
+            pass  # table missing (migration not applied) — degrade gracefully
+
     tracker["lines"] = lines
 
     # Tracker-level workflow flags are DERIVED from the lines, not stored.

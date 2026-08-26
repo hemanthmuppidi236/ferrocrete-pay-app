@@ -18,6 +18,8 @@ class SubBase(BaseModel):
     contact_name: Optional[str] = None
     contact_email: Optional[EmailStr] = None
     contact_phone: Optional[str] = None
+    billing_email: Optional[EmailStr] = None
+    billing_cc: Optional[EmailStr] = None
     is_non_prelimed: bool = False
     sort_order: int = 0
     active: bool = True
@@ -33,6 +35,8 @@ class SubUpdate(BaseModel):
     contact_name: Optional[str] = None
     contact_email: Optional[EmailStr] = None
     contact_phone: Optional[str] = None
+    billing_email: Optional[EmailStr] = None
+    billing_cc: Optional[EmailStr] = None
     is_non_prelimed: Optional[bool] = None
     sort_order: Optional[int] = None
     active: Optional[bool] = None
@@ -115,6 +119,8 @@ class ReleaseLine(BaseModel):
     # Derived, computed server-side on the detail payload.
     stage: Optional[Stage] = None
     is_overdue: bool = False
+    has_email: bool = False               # sub has a billing/contact email (WI-3)
+    last_reminder: Optional[dict] = None  # {template_key, sent_at} of most recent
     created_at: datetime
     updated_at: datetime
 
