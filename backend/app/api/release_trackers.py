@@ -143,6 +143,17 @@ def get_release_tracker(
         tracker.get("invoice_amount"), total_checks, total_unbilled
     )
 
+    # Provision (#6): retention billed on the linked pay app this period.
+    tracker["retention_billed_amount"] = None
+    if tracker.get("pay_app_id"):
+        try:
+            pa = (sb.table("pay_apps").select("retention_billed_amount")
+                  .eq("id", tracker["pay_app_id"]).limit(1).execute())
+            if pa.data and pa.data[0].get("retention_billed_amount") is not None:
+                tracker["retention_billed_amount"] = pa.data[0]["retention_billed_amount"]
+        except Exception:
+            pass  # migration 008 not applied yet
+
     return tracker
 
 

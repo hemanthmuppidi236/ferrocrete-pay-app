@@ -49,6 +49,8 @@ class PayAppUpdate(BaseModel):
     status: Optional[PayAppStatusLiteral] = None
     paid_amount: Optional[Decimal] = None
     notes: Optional[str] = None
+    retention_billed: Optional[bool] = None
+    retention_billed_amount: Optional[Decimal] = None
 
 
 class PayAppBillingsUpdate(BaseModel):
@@ -104,6 +106,10 @@ class PayApp(BaseModel):
 
     paid_at: Optional[datetime] = None
     paid_amount: Optional[Decimal] = None
+
+    # Retention billed this period (manager feedback #6)
+    retention_billed: bool = False
+    retention_billed_amount: Decimal = Decimal("0")
 
     excel_file_path: Optional[str] = None
     pdf_file_path: Optional[str] = None

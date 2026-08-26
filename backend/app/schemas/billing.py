@@ -25,6 +25,7 @@ class BillingSummaryRow(BaseModel):
     retention_rate: Decimal                   # K
     billed_amount: Decimal                    # L = J × (1 − K)
     potential_net: Optional[Decimal] = None   # M  ← release tracker (Ferrocrete Net)
+    retention_billed: Decimal = Decimal("0")  # retention billed this period (#6)
 
     # Manual (auto-defaulted, override wins)
     billing_due_date: str = ""                # D
@@ -51,6 +52,7 @@ class BillingSummaryTotals(BaseModel):
     potential_net: Decimal
     rebar: Decimal
     cmu: Decimal
+    retention_billed: Decimal = Decimal("0")
 
 
 class BillingSummaryAccrued(BaseModel):
@@ -65,6 +67,8 @@ class BillingSummaryFooter(BaseModel):
     quickbooks_total: Optional[Decimal] = None     # manual, per period
     quickbooks_diff: Optional[Decimal] = None      # Quickbooks − Billed total
     running_total_billed: Decimal = Decimal("0")   # Σ Billed across the year
+    billed_incl_retention: Decimal = Decimal("0")  # Billed total + retention billed (#6)
+    net_incl_retention: Decimal = Decimal("0")     # Net total + retention billed (#6)
 
 
 class BillingSummaryResponse(BaseModel):
