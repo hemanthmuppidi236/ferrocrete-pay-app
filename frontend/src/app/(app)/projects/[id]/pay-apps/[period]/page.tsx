@@ -759,121 +759,109 @@ function SovTable({
 }) {
   const retRate = parseFloat(project.retention_rate);
 
+  // Unified list of items (base SOV lines + change orders) so one renderer and
+  // one totals row cover both.
+  type Item = {
+    key: string; level: string; levelRed?: boolean; description: string;
+    scheduled: number; sovId: string | null; coId: string | null; retApplies: boolean;
+  };
+  const items: Item[] = [
+    ...sovLines.map((l) => ({
+      key: l.id, level: l.item_no || "·", description: l.description,
+      scheduled: parseFloat(l.scheduled_value || "0"),
+      sovId: l.id, coId: null, retApplies: true,
+    })),
+    ...cos.map((c) => ({
+      key: c.id, level: c.co_no, levelRed: true, description: c.description,
+      scheduled: parseFloat(c.amount || "0"),
+      sovId: null, coId: c.id, retApplies: c.has_retention,
+    })),
+  ];
+
+  const t = { sched: 0, prev: 0, thisP: 0, stored: 0, total: 0, balance: 0, ret: 0 };
+
+  const rows = items.map((it) => {
+    const b = billings[it.key];
+    const prev = parseFloat(b?.previous_work || "0");
+    const thisP = parseFloat(b?.this_period_work || "0");
+    const stored = parseFloat(b?.materials_stored || "0");
+    const total = prev + thisP + stored;
+    const pct = it.scheduled > 0 ? Math.round((total / it.scheduled) * 100) : 0;
+    const balance = it.scheduled - total;
+    const ret = it.retApplies ? total * retRate : 0;
+
+    t.sched += it.scheduled; t.prev += prev; t.thisP += thisP; t.stored += stored;
+    t.total += total; t.balance += balance; t.ret += ret;
+
+    return (
+      <div key={it.key} className="sov-row">
+        <div className="sov-cell-level" style={it.levelRed ? { color: "var(--ferrocrete-red)" } : undefined}>
+          {it.level}
+        </div>
+        <div className="sov-cell-desc">{it.description}</div>
+        <div className="sov-cell-num faded">{it.scheduled === 0 ? "—" : fmtMoneyShort(it.scheduled)}</div>
+        <div className="sov-cell-num primary">{fmtMoney(prev, { zero: "$0" })}</div>
+        <div>
+          {isReadOnly ? (
+            <div className="sov-cell-num primary">{fmtMoney(thisP, { zero: "—" })}</div>
+          ) : (
+            <input
+              className="input-num" inputMode="decimal"
+              value={b?.this_period_work || ""} placeholder="—"
+              onChange={(e) => onUpdate(it.key, it.sovId, it.coId, "this_period_work", e.target.value)}
+            />
+          )}
+        </div>
+        <div>
+          {isReadOnly ? (
+            <div className="sov-cell-num">{fmtMoney(stored, { zero: "—" })}</div>
+          ) : (
+            <input
+              className="input-num" inputMode="decimal"
+              value={b?.materials_stored || ""} placeholder="—"
+              onChange={(e) => onUpdate(it.key, it.sovId, it.coId, "materials_stored", e.target.value)}
+            />
+          )}
+        </div>
+        <div className="sov-cell-num primary">{total === 0 ? "—" : fmtMoney(total)}</div>
+        <div className="sov-cell-num faded" style={{ textAlign: "right" }}>{it.scheduled > 0 ? `${pct}%` : "—"}</div>
+        <div className="sov-cell-num faded">{fmtMoney(balance, { zero: "$0" })}</div>
+        <div className="sov-cell-num">{ret === 0 ? "—" : fmtMoney(ret)}</div>
+      </div>
+    );
+  });
+
   return (
     <div className="sov-section">
       <div className="sov-section-label">{title}</div>
       <div className="glass sov-table">
         <div className="sov-row sov-row-header">
-          <div>Item</div>
-          <div>Description</div>
-          <div style={{ textAlign: "right" }}>Scheduled</div>
-          <div style={{ textAlign: "right" }}>Previous</div>
-          <div style={{ textAlign: "right" }}>This period</div>
-          <div style={{ textAlign: "right" }}>Total</div>
+          <div>Level</div>
+          <div>Description of Work</div>
+          <div style={{ textAlign: "right" }}>Scheduled Value</div>
+          <div style={{ textAlign: "right" }}>Work Completed From Previous Application</div>
+          <div style={{ textAlign: "right" }}>This Period</div>
+          <div style={{ textAlign: "right" }}>Materials Presently Stored</div>
+          <div style={{ textAlign: "right" }}>Total Completed and Stored to Date</div>
+          <div style={{ textAlign: "right" }}>% (G/C)</div>
+          <div style={{ textAlign: "right" }}>Balance to Finish (C-G)</div>
           <div style={{ textAlign: "right" }}>Retention</div>
         </div>
 
-        {sovLines.map((line) => {
-          const b = billings[line.id];
-          const sched = parseFloat(line.scheduled_value || "0");
-          const prev = parseFloat(b?.previous_work || "0");
-          const thisP = parseFloat(b?.this_period_work || "0");
-          const stored = parseFloat(b?.materials_stored || "0");
-          const total = prev + thisP + stored;
-          const pct = sched > 0 ? Math.round((total / sched) * 100) : 0;
-          const ret = total * retRate;
+        {rows}
 
-          return (
-            <div key={line.id} className="sov-row">
-              <div className="sov-cell-level">{line.item_no || "·"}</div>
-              <div className="sov-cell-desc">{line.description}</div>
-              <div className="sov-cell-num faded">
-                {sched === 0 ? "—" : fmtMoneyShort(sched)}
-              </div>
-              <div className="sov-cell-num primary">{fmtMoney(prev, { zero: "$0" })}</div>
-              <div>
-                {isReadOnly ? (
-                  <div className="sov-cell-num primary">
-                    {fmtMoney(thisP, { zero: "—" })}
-                  </div>
-                ) : (
-                  <input
-                    className="input-num"
-                    inputMode="decimal"
-                    value={b?.this_period_work || ""}
-                    placeholder="—"
-                    onChange={(e) =>
-                      onUpdate(line.id, line.id, null, "this_period_work", e.target.value)
-                    }
-                  />
-                )}
-              </div>
-              <div className="sov-cell-num primary">
-                {total === 0 ? (
-                  "—"
-                ) : (
-                  <>
-                    {fmtMoney(total)}
-                    <div className="sov-cell-pct">{pct}% complete</div>
-                  </>
-                )}
-              </div>
-              <div className="sov-cell-num">{ret === 0 ? "—" : fmtMoney(ret)}</div>
-            </div>
-          );
-        })}
-
-        {cos.map((co) => {
-          const b = billings[co.id];
-          const sched = parseFloat(co.amount || "0");
-          const prev = parseFloat(b?.previous_work || "0");
-          const thisP = parseFloat(b?.this_period_work || "0");
-          const stored = parseFloat(b?.materials_stored || "0");
-          const total = prev + thisP + stored;
-          const pct = sched > 0 ? Math.round((total / sched) * 100) : 0;
-          const ret = co.has_retention ? total * retRate : 0;
-
-          return (
-            <div key={co.id} className="sov-row">
-              <div className="sov-cell-level" style={{ color: "var(--ferrocrete-red)" }}>
-                {co.co_no}
-              </div>
-              <div className="sov-cell-desc">{co.description}</div>
-              <div className="sov-cell-num faded">
-                {sched === 0 ? "—" : fmtMoneyShort(sched)}
-              </div>
-              <div className="sov-cell-num primary">{fmtMoney(prev, { zero: "$0" })}</div>
-              <div>
-                {isReadOnly ? (
-                  <div className="sov-cell-num primary">
-                    {fmtMoney(thisP, { zero: "—" })}
-                  </div>
-                ) : (
-                  <input
-                    className="input-num"
-                    inputMode="decimal"
-                    value={b?.this_period_work || ""}
-                    placeholder="—"
-                    onChange={(e) =>
-                      onUpdate(co.id, null, co.id, "this_period_work", e.target.value)
-                    }
-                  />
-                )}
-              </div>
-              <div className="sov-cell-num primary">
-                {total === 0 ? (
-                  "—"
-                ) : (
-                  <>
-                    {fmtMoney(total)}
-                    <div className="sov-cell-pct">{pct}% complete</div>
-                  </>
-                )}
-              </div>
-              <div className="sov-cell-num">{ret === 0 ? "—" : fmtMoney(ret)}</div>
-            </div>
-          );
-        })}
+        <div className="sov-row sov-row-total">
+          <div />
+          <div>Total</div>
+          <div style={{ textAlign: "right" }}>{fmtMoney(t.sched)}</div>
+          <div style={{ textAlign: "right" }}>{fmtMoney(t.prev)}</div>
+          <div style={{ textAlign: "right" }}>{fmtMoney(t.thisP)}</div>
+          <div style={{ textAlign: "right" }}>{fmtMoney(t.stored)}</div>
+          <div style={{ textAlign: "right" }}>{fmtMoney(t.total)}</div>
+          <div />
+          <div style={{ textAlign: "right" }}>{fmtMoney(t.balance)}</div>
+          <div style={{ textAlign: "right" }}>{fmtMoney(t.ret)}</div>
+        </div>
       </div>
     </div>
   );
