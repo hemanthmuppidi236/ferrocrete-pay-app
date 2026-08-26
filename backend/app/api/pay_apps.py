@@ -441,39 +441,12 @@ def _autocreate_release_tracker(sb, pa: dict) -> None:
         rt_res = sb.table("release_trackers").insert(tracker_payload).execute()
         tracker_id = rt_res.data[0]["id"]
 
-        # Seed release lines: carry forward from prior period, or use active subs.
-        prior = (sb.table("release_trackers").select("id")
-                 .eq("project_id", project_id)
-                 .lt("period", period)
-                 .order("period", desc=True)
-                 .limit(1).execute())
-        if prior.data:
-            prior_lines = (sb.table("release_lines").select("*")
-                           .eq("release_tracker_id", prior.data[0]["id"]).execute())
-            if prior_lines.data:
-                new_lines = [{
-                    "release_tracker_id": tracker_id,
-                    "sub_id": pl["sub_id"],
-                    "billed_amount": "0",
-                    "check_amount": "0",
-                    "release_type": pl.get("release_type"),
-                    "exception": pl.get("exception"),
-                    "prev_month_status": None,
-                } for pl in prior_lines.data]
-                sb.table("release_lines").insert(new_lines).execute()
-        else:
-            subs = (sb.table("subs").select("id, default_release_type")
-                    .eq("project_id", project_id)
-                    .eq("active", True).execute())
-            if subs.data:
-                new_lines = [{
-                    "release_tracker_id": tracker_id,
-                    "sub_id": s["id"],
-                    "billed_amount": "0",
-                    "check_amount": "0",
-                    "release_type": s.get("default_release_type"),
-                } for s in subs.data]
-                sb.table("release_lines").insert(new_lines).execute()
+        # Seed lines = union of (prior tracker lines, zeroed) + (active subs not
+        # already carried). Shared with the explicit POST /release-trackers path.
+        from ..core.release_carry_forward import build_seed_lines
+        new_lines = build_seed_lines(sb, project_id, tracker_id, period)
+        if new_lines:
+            sb.table("release_lines").insert(new_lines).execute()
 
         # Seed 5 empty unbilled entries
         sb.table("release_unbilled_entries").insert([{
