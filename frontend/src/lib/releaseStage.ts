@@ -91,6 +91,55 @@ export function trackerStageSummary(t: ReleaseTracker): string {
   return `${complete} of ${applicable} complete`;
 }
 
+// ─── Row stepper (Concept A) ─────────────────────────────────────────
+
+export const STEPPER_STAGES = ["Bill", "CP/CF", "GC pays", "Release", "UP/UF"];
+export const STEPPER_STAGES_NP = ["Bill", "Release"];
+
+export type NodeState = "done" | "current" | "overdue" | "pending" | "na";
+
+/** Turn a line's derived stage into a per-node state list for the stepper. */
+export function stepperModel(
+  stage: Stage,
+  nonPrelimed: boolean,
+  overdue: boolean
+): { labels: string[]; states: NodeState[]; complete: boolean } {
+  const labels = nonPrelimed ? STEPPER_STAGES_NP : STEPPER_STAGES;
+  if (stage === "n/a") {
+    return { labels, states: labels.map(() => "na" as NodeState), complete: false };
+  }
+  let currentIdx: number;
+  if (nonPrelimed) {
+    currentIdx =
+      stage === "awaiting_bill" ? 0 : stage === "awaiting_check_release" ? 1 : labels.length;
+  } else {
+    const map: Record<string, number> = {
+      awaiting_bill: 0,
+      awaiting_conditional: 1,
+      awaiting_gc_payment: 2,
+      awaiting_check_release: 3,
+      awaiting_unconditional: 4,
+      complete: 5,
+    };
+    currentIdx = map[stage] ?? 0;
+  }
+  const states: NodeState[] = labels.map((_, i) => {
+    if (i < currentIdx) return "done";
+    if (i === currentIdx) return overdue ? "overdue" : "current";
+    return "pending";
+  });
+  return { labels, states, complete: currentIdx >= labels.length };
+}
+
+/** CSS var for the "current" node color, matching the pill hues:
+ * blue when the ball is in Ferrocrete's court (GC payment / release),
+ * amber when waiting on the sub (bill / CP-CF / UP-UF). */
+export function currentNodeColor(stage: Stage): string {
+  return stage === "awaiting_gc_payment" || stage === "awaiting_check_release"
+    ? "var(--status-blue)"
+    : "var(--status-amber)";
+}
+
 /** Derived status pill label + class for a tracker (list + detail header). */
 export function trackerStatus(t: ReleaseTracker): { label: string; cls: string } {
   if (t.sent_to_gc) return { label: "Sent", cls: "pill-green" };

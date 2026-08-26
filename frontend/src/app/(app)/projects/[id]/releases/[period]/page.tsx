@@ -17,7 +17,13 @@ import type {
 } from "@/lib/types";
 import { fmtMoneyShort } from "@/lib/payAppMath";
 import { useCurrentUser } from "@/lib/useCurrentUser";
-import { STAGE_LABEL, stagePillClass, deriveStage } from "@/lib/releaseStage";
+import {
+  STAGE_LABEL,
+  deriveStage,
+  stepperModel,
+  currentNodeColor,
+  type NodeState,
+} from "@/lib/releaseStage";
 
 export default function ReleaseTrackerDetailPage({
   params,
@@ -890,7 +896,7 @@ function StageTable({
       </div>
       <div style={{ overflowX: "auto" }}>
         <table
-          style={{ width: "100%", borderCollapse: "collapse", minWidth: nonPrelimed ? 640 : 820 }}
+          style={{ width: "100%", borderCollapse: "collapse", minWidth: nonPrelimed ? 720 : 1060 }}
         >
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
@@ -1078,11 +1084,8 @@ function StageRow({
             </select>
           </td>
         )}
-        <td style={{ padding: "6px 8px" }}>
-          <span className={`pill ${stagePillClass(stage, overdue)}`}>
-            {STAGE_LABEL[stage]}
-            {overdue ? " · overdue" : ""}
-          </span>
+        <td style={{ padding: "6px 8px", minWidth: nonPrelimed ? 150 : 300 }}>
+          <StageStepper line={line} stage={stage} nonPrelimed={nonPrelimed} overdue={overdue} />
         </td>
         <td style={{ padding: "6px 8px", textAlign: "right" }}>
           <button
@@ -1113,6 +1116,138 @@ function StageRow({
         </tr>
       )}
     </>
+  );
+}
+
+// ─── Row stepper: connected node per stage, inline on the row ────────
+
+function mdShort(iso: string | null): string {
+  if (!iso) return "";
+  const p = String(iso).slice(0, 10).split("-");
+  if (p.length !== 3) return "";
+  return `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}`;
+}
+
+function StageStepper({
+  line,
+  stage,
+  nonPrelimed,
+  overdue,
+}: {
+  line: ReleaseLine;
+  stage: ReturnType<typeof deriveStage>;
+  nonPrelimed: boolean;
+  overdue: boolean;
+}) {
+  const { labels, states } = stepperModel(stage, nonPrelimed, overdue);
+  const curColor = currentNodeColor(stage);
+  const dates = nonPrelimed
+    ? [line.bill_received_at, line.check_sent_to_sub_at]
+    : [
+        line.bill_received_at,
+        line.conditional_sent_at || line.conditional_received_at,
+        line.check_received_at,
+        line.check_sent_to_sub_at,
+        line.unconditional_sent_at || line.unconditional_received_at,
+      ];
+
+  const nodeStyle = (st: NodeState): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      width: 24,
+      height: 24,
+      borderRadius: "50%",
+      display: "grid",
+      placeItems: "center",
+      zIndex: 1,
+      background: "var(--surface, var(--bg))",
+      border: "2px solid var(--border-strong)",
+      fontFamily:
+        "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+      fontSize: 11,
+      fontWeight: 600,
+      color: "var(--text-faint)",
+    };
+    if (st === "done")
+      return { ...base, background: "var(--status-green)", borderColor: "var(--status-green)", color: "#fff" };
+    if (st === "current")
+      return { ...base, borderColor: curColor, color: curColor, boxShadow: `0 0 0 3px color-mix(in srgb, ${curColor} 18%, transparent)` };
+    if (st === "overdue")
+      return { ...base, borderColor: "var(--status-red)", color: "var(--status-red)", boxShadow: "0 0 0 3px color-mix(in srgb, var(--status-red) 18%, transparent)" };
+    return base; // pending / na
+  };
+
+  const title =
+    stage === "n/a"
+      ? "No billed activity"
+      : `${STAGE_LABEL[stage]}${overdue ? " · overdue" : ""}`;
+
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", opacity: stage === "n/a" ? 0.5 : 1 }} title={title}>
+      {labels.map((lbl, i) => {
+        const st = states[i];
+        const reached = st === "done" || st === "current" || st === "overdue";
+        const connColor =
+          st === "done" || st === "current" || st === "overdue"
+            ? "var(--status-green)"
+            : "var(--border-strong)";
+        const d = mdShort(dates[i] ?? null);
+        return (
+          <div
+            key={lbl}
+            style={{
+              position: "relative",
+              flex: "1 1 0",
+              minWidth: 46,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+            title={`${lbl}${st === "done" ? (d ? " · done " + d : " · done") : st === "current" ? " · in progress" : st === "overdue" ? " · overdue" : " · pending"}`}
+          >
+            {i > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 11,
+                  left: "-50%",
+                  width: "100%",
+                  height: 2,
+                  background: connColor,
+                  zIndex: 0,
+                }}
+              />
+            )}
+            <div style={nodeStyle(st)}>{st === "done" ? "✓" : i + 1}</div>
+            <div
+              style={{
+                fontFamily:
+                  "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                fontSize: 9,
+                letterSpacing: 0.3,
+                textTransform: "uppercase",
+                color: reached ? "var(--text-muted)" : "var(--text-faint)",
+                marginTop: 5,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {lbl}
+            </div>
+            <div
+              style={{
+                fontFamily:
+                  "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                fontSize: 8.5,
+                color: "var(--text-faint)",
+                marginTop: 1,
+                minHeight: 10,
+              }}
+            >
+              {d}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
