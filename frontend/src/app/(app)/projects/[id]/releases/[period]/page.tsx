@@ -1450,10 +1450,9 @@ function StageStrip({
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(184px, 1fr))",
-        gap: "18px 44px",
-        alignItems: "start",
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
         padding: "16px 18px",
         background: "var(--accent-dim)",
         borderBottom: "1px solid var(--border)",
@@ -1461,7 +1460,7 @@ function StageStrip({
     >
       {/* Status banner: no-email warning + last emailed */}
       {(saved && !line.has_email) || line.last_reminder ? (
-        <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 2 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
           {saved && !line.has_email && (
             <span style={{ fontSize: 12, color: "var(--status-amber)" }}>
               ⚠ No email on file for this sub — add one on{" "}
@@ -1477,6 +1476,15 @@ function StageStrip({
         </div>
       ) : null}
 
+      {/* Stage cards — equal columns that fill the width */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${nonPrelimed ? 2 : 4}, minmax(0, 1fr))`,
+          gap: 14,
+          alignItems: "stretch",
+        }}
+      >
       {/* Bill */}
       <StageGroup title="Bill" status={line.bill_status}>
         <DateLine label="requested" value={line.bill_requested_at} />
@@ -1614,8 +1622,9 @@ function StageStrip({
           )}
         </StageGroup>
       )}
+      </div>
 
-      {/* Difference note */}
+      {/* Difference note — its own full-width line */}
       <div>
         <div style={stripGroupTitle}>Difference note</div>
         <input
@@ -1624,8 +1633,8 @@ function StageStrip({
           value={line.difference_note ?? ""}
           onChange={(e) => onChange({ difference_note: e.target.value || null })}
           disabled={!canEdit}
-          placeholder="e.g. deposit to Ferrocrete"
-          style={{ fontSize: 12, width: "100%" }}
+          placeholder="e.g. Amount to be deposited to Ferrocrete account"
+          style={{ fontSize: 13, width: "100%", maxWidth: 560 }}
         />
       </div>
     </div>
@@ -1699,11 +1708,22 @@ function StageGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <div style={stripGroupTitle}>
-        {title}
+    <div
+      style={{
+        background: "var(--surface, var(--bg))",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm, 6px)",
+        padding: "12px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        minWidth: 0,
+      }}
+    >
+      <div style={{ ...stripGroupTitle, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+        <span>{title}</span>
         {status ? (
-          <span style={{ marginLeft: 6, color: "var(--text-primary)", textTransform: "none", letterSpacing: 0 }}>
+          <span style={{ color: "var(--text-primary)", textTransform: "none", letterSpacing: 0, fontSize: 11 }}>
             {status.replace(/_/g, " ")}
           </span>
         ) : null}
