@@ -11,9 +11,13 @@ import type {
   ReleaseType,
   Sub,
   Waiver,
+  BillStatus,
+  WaiverStatus,
+  CheckType,
 } from "@/lib/types";
 import { fmtMoneyShort } from "@/lib/payAppMath";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { STAGE_LABEL, stagePillClass, deriveStage } from "@/lib/releaseStage";
 
 export default function ReleaseTrackerDetailPage({
   params,
@@ -39,6 +43,7 @@ export default function ReleaseTrackerDetailPage({
   const [buildertrendTotal, setBuildertrendTotal] = useState("");
   const [lessMisc, setLessMisc] = useState("");
   const [addSubId, setAddSubId] = useState("");
+  const [expandedSub, setExpandedSub] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,8 +161,19 @@ export default function ReleaseTrackerDetailPage({
   const invoiceAmountNum = parseFloat(invoiceAmount || "0");
   const buildertrendNum = parseFloat(buildertrendTotal || "0");
   const lessMiscNum = parseFloat(lessMisc || "0");
-  // Buildertrend reconciliation: BT total - misc - sum of checks should ~= 0
-  const btReconDiff = buildertrendNum - lessMiscNum - checkTotal;
+
+  // Full reconciliation, in the Excel's order (WI-2 §3).
+  const subsVendorsCheck = lines
+    .filter((l) => !l.is_non_prelimed)
+    .reduce((s, l) => s + parseFloat(String(l.check_amount) || "0"), 0);
+  const nonPrelimCheck = lines
+    .filter((l) => l.is_non_prelimed)
+    .reduce((s, l) => s + parseFloat(String(l.check_amount) || "0"), 0);
+  const ferrocreteTotal = invoiceAmountNum - subsVendorsCheck;
+  const ferrocreteNet = ferrocreteTotal - nonPrelimCheck - unbilledTotal;
+  const btSide = buildertrendNum + unbilledTotal - lessMiscNum;
+  const spreadsheetSide = subsVendorsCheck + nonPrelimCheck + unbilledTotal;
+  const discrepancy = btSide - spreadsheetSide;
 
   // Active subs not yet on this tracker — the "Add sub" dropdown source.
   const addableSubs = useMemo(() => {
@@ -171,17 +187,25 @@ export default function ReleaseTrackerDetailPage({
     const sub = subById.get(subId);
     if (!sub) return;
     // Unsaved line: empty id signals "persist on Save before waivers can attach".
+    const naStatus = sub.is_non_prelimed ? "not_applicable" : "not_requested";
     const newLine = {
       id: "",
       release_tracker_id: tracker?.id ?? "",
       sub_id: sub.id,
       sub_name: sub.name,
       parent_sub_id: sub.parent_sub_id ?? null,
+      is_non_prelimed: sub.is_non_prelimed,
       billed_amount: "0",
       check_amount: "0",
       release_type: sub.default_release_type ?? null,
       exception: null,
       prev_month_status: null,
+      bill_status: "not_requested",
+      conditional_status: naStatus,
+      unconditional_status: naStatus,
+      check_type: null,
+      stage: "n/a",
+      is_overdue: false,
     } as unknown as ReleaseLine;
     setLines((prev) => [...prev, newLine]);
     setAddSubId("");
@@ -208,6 +232,51 @@ export default function ReleaseTrackerDetailPage({
     setTimeout(() => setSavedFlash(false), 1500);
   }
 
+  // The waiver endpoints advance a line's status server-side. Mirror that in
+  // local state (so the stage pill updates) WITHOUT refetching the whole
+  // tracker, which would clobber unsaved billed/check edits. Also refresh the
+  // waiver list so the slots repaint.
+  function applyWaiverStatus(
+    subId: string,
+    waiverType: ReleaseType,
+    action: "upload" | "delete"
+  ) {
+    const today = new Date().toISOString().slice(0, 10);
+    const isCond = waiverType === "CP" || waiverType === "CF";
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.sub_id !== subId) return l;
+        if (action === "upload") {
+          if (isCond && ["not_requested", "requested"].includes(l.conditional_status))
+            return { ...l, conditional_status: "received", conditional_received_at: today };
+          if (!isCond && ["not_requested", "requested"].includes(l.unconditional_status))
+            return { ...l, unconditional_status: "received", unconditional_received_at: today };
+        } else {
+          if (isCond && l.conditional_status === "received")
+            return { ...l, conditional_status: "requested", conditional_received_at: null };
+          if (!isCond && l.unconditional_status === "received")
+            return { ...l, unconditional_status: "requested", unconditional_received_at: null };
+        }
+        return l;
+      })
+    );
+  }
+
+  async function handleWaiverChanged(
+    subId: string,
+    waiverType: ReleaseType,
+    action: "upload" | "delete"
+  ) {
+    if (!tracker) return;
+    try {
+      const w = await api.get<Waiver[]>(`/release-trackers/${tracker.id}/waivers`);
+      setWaivers(w);
+    } catch {
+      /* non-fatal */
+    }
+    applyWaiverStatus(subId, waiverType, action);
+  }
+
   async function saveAll() {
     if (!tracker) return;
     setSaving(true);
@@ -232,6 +301,22 @@ export default function ReleaseTrackerDetailPage({
           release_type: l.release_type,
           exception: l.exception,
           prev_month_status: l.prev_month_status,
+          // Per-line lifecycle (WI-2)
+          bill_status: l.bill_status,
+          bill_requested_at: l.bill_requested_at,
+          bill_received_at: l.bill_received_at,
+          bill_due_at: l.bill_due_at,
+          conditional_status: l.conditional_status,
+          conditional_received_at: l.conditional_received_at,
+          conditional_sent_at: l.conditional_sent_at,
+          check_type: l.check_type,
+          check_received_at: l.check_received_at,
+          check_sent_to_sub_at: l.check_sent_to_sub_at,
+          unconditional_status: l.unconditional_status,
+          unconditional_requested_at: l.unconditional_requested_at,
+          unconditional_received_at: l.unconditional_received_at,
+          unconditional_sent_at: l.unconditional_sent_at,
+          difference_note: l.difference_note,
         })),
       });
 
@@ -377,30 +462,26 @@ export default function ReleaseTrackerDetailPage({
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 8 }}
               >
-                <WorkflowCheckbox
-                  label="Requested releases"
-                  checked={tracker.requested_releases}
-                  disabled={!canEdit}
-                  onChange={() => toggleWorkflow("requested_releases" as never)}
-                />
-                <WorkflowCheckbox
-                  label="Verified releases"
-                  checked={tracker.verified_releases}
-                  disabled={!canEdit}
-                  onChange={() => toggleWorkflow("verified_releases" as never)}
-                />
+                {/* These three are DERIVED from the per-sub lifecycle below. */}
+                <DerivedFlag label="Requested releases" on={tracker.requested_releases} />
+                <DerivedFlag label="Verified releases" on={tracker.verified_releases} />
+                {/* Approved is the one manually-set flag (GC approved the pay app). */}
                 <WorkflowCheckbox
                   label="Approved"
                   checked={tracker.approved}
                   disabled={!canEdit}
                   onChange={() => toggleWorkflow("approved" as never)}
                 />
-                <WorkflowCheckbox
-                  label="Sent to GC"
-                  checked={tracker.sent_to_gc}
-                  disabled={!canEdit}
-                  onChange={() => toggleWorkflow("sent_to_gc" as never)}
-                />
+                <DerivedFlag label="Sent to GC" on={tracker.sent_to_gc} />
+              </div>
+              <div
+                style={{
+                  marginTop: 10,
+                  fontSize: 11,
+                  color: "var(--text-faint)",
+                }}
+              >
+                Requested / Verified / Sent are derived from the sub stages below.
               </div>
               {tracker.conditional_through_date && (
                 <div
@@ -543,93 +624,55 @@ export default function ReleaseTrackerDetailPage({
               , then re-create the tracker.
             </div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  minWidth: 1000,
-                }}
-              >
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
-                    <th style={{ ...thStyle, textAlign: "left" }}>Sub</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Billed</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Check</th>
-                    <th style={thStyle}>Type</th>
-                    <th style={thStyle}>Exception</th>
-                    <th style={thStyle}>Prev month</th>
-                    <th style={thStyle}>Waivers</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orderedLines.map(({ line, depth }) => {
-                    const hasWaivers = (["CP", "UP", "CF", "UF"] as const).some(
-                      (t) => waiverIndex.has(`${line.id}:${t}`)
-                    );
-                    const isEmpty =
-                      parseFloat(String(line.billed_amount) || "0") === 0 &&
-                      parseFloat(String(line.check_amount) || "0") === 0;
-                    const removable = canEdit && !hasWaivers && isEmpty;
-                    return (
-                    <ReleaseLineRow
-                      key={line.id || line.sub_id}
-                      line={line}
-                      depth={depth}
-                      waiverIndex={waiverIndex}
-                      canEdit={canEdit}
-                      removable={removable}
-                      onRemove={() => removeLine(line.sub_id)}
-                      onChange={(patch) => updateLine(line.sub_id, patch)}
-                      onWaiverChanged={async () => {
-                        try {
-                          const w = await api.get<Waiver[]>(
-                            `/release-trackers/${tracker.id}/waivers`
-                          );
-                          setWaivers(w);
-                        } catch {
-                          /* ignore */
-                        }
-                      }}
-                      onError={(msg) => setError(msg)}
-                    />
-                    );
-                  })}
-                  <tr>
-                    <td style={totalLabelStyle}>Total</td>
-                    <td style={totalValueStyle}>
-                      {fmtMoneyShort(billedTotal)}
-                    </td>
-                    <td style={totalValueStyle}>
-                      {fmtMoneyShort(checkTotal)}
-                    </td>
-                    <td colSpan={4}></td>
-                  </tr>
-                  {Math.abs(billedTotal - invoiceAmountNum) > 0.01 && (
-                    <tr>
-                      <td colSpan={7}>
-                        <div
-                          style={{
-                            marginTop: 10,
-                            padding: "8px 14px",
-                            background: "rgba(245, 158, 11, 0.10)",
-                            border: "1px solid rgba(245, 158, 11, 0.30)",
-                            borderRadius: "var(--radius-sm)",
-                            fontSize: 13,
-                            color: "var(--status-amber, #b45309)",
-                          }}
-                        >
-                          ⚠ Billed total ({fmtMoneyShort(billedTotal)})
-                          doesn&apos;t match invoice amount (
-                          {fmtMoneyShort(invoiceAmountNum)}). Difference:{" "}
-                          {fmtMoneyShort(billedTotal - invoiceAmountNum)}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <StageTable
+                title="Subs / Vendors"
+                rows={orderedLines.filter((o) => !o.line.is_non_prelimed)}
+                nonPrelimed={false}
+                canEdit={canEdit}
+                waiverIndex={waiverIndex}
+                expandedSub={expandedSub}
+                onToggleExpand={(id) =>
+                  setExpandedSub((cur) => (cur === id ? null : id))
+                }
+                onChange={updateLine}
+                onRemove={removeLine}
+                onWaiverChanged={handleWaiverChanged}
+                onError={setError}
+              />
+              <StageTable
+                title="Non-Prelimed Bills"
+                rows={orderedLines.filter((o) => o.line.is_non_prelimed)}
+                nonPrelimed
+                canEdit={canEdit}
+                waiverIndex={waiverIndex}
+                expandedSub={expandedSub}
+                onToggleExpand={(id) =>
+                  setExpandedSub((cur) => (cur === id ? null : id))
+                }
+                onChange={updateLine}
+                onRemove={removeLine}
+                onWaiverChanged={handleWaiverChanged}
+                onError={setError}
+              />
+              {Math.abs(billedTotal - invoiceAmountNum) > 0.01 && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "8px 14px",
+                    background: "rgba(245, 158, 11, 0.10)",
+                    border: "1px solid rgba(245, 158, 11, 0.30)",
+                    borderRadius: "var(--radius-sm)",
+                    fontSize: 13,
+                    color: "var(--status-amber, #b45309)",
+                  }}
+                >
+                  ⚠ Billed total ({fmtMoneyShort(billedTotal)}) doesn&apos;t
+                  match invoice amount ({fmtMoneyShort(invoiceAmountNum)}).
+                  Difference: {fmtMoneyShort(billedTotal - invoiceAmountNum)}
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -721,30 +764,50 @@ export default function ReleaseTrackerDetailPage({
                 disabled={!canEdit}
               />
             </div>
-            <div style={{ gridColumn: "span 2" }}>
-              <div
-                style={{
-                  fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  marginTop: 6,
-                }}
-              >
-                BT − Misc − Checks ={" "}
-                <strong
-                  style={{
-                    color:
-                      Math.abs(btReconDiff) < 0.01
-                        ? "var(--status-green)"
-                        : "var(--ferrocrete-red)",
-                    fontSize: 14,
-                  }}
-                >
-                  {fmtMoneyShort(btReconDiff)}
-                </strong>
-                {Math.abs(btReconDiff) < 0.01 && " ✓ reconciled"}
-              </div>
-            </div>
+          </div>
+
+          {/* Full reconciliation block, in the Excel's order. */}
+          <div
+            style={{
+              marginTop: 16,
+              display: "grid",
+              gap: "3px 18px",
+              gridTemplateColumns: "1fr auto",
+              fontFamily:
+                "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+              fontSize: 13,
+              maxWidth: 460,
+            }}
+          >
+            <ReconLine label="Subs / Vendors Total" value={subsVendorsCheck} />
+            <ReconLine label="Ferrocrete Total (Invoice − Subs)" value={ferrocreteTotal} />
+            <ReconLine label="Non-Prelimed Total" value={nonPrelimCheck} />
+            <ReconLine label="Previous Month(s) Unbilled Total" value={unbilledTotal} />
+            <ReconLine label="Ferrocrete Net" value={ferrocreteNet} strong />
+            <div style={{ gridColumn: "span 2", height: 6 }} />
+            <ReconLine label="Buildertrend side (BT + Unbilled − Misc)" value={btSide} />
+            <ReconLine label="Spreadsheet side (Subs + Non-Prelim + Unbilled)" value={spreadsheetSide} />
+            <div
+              style={{
+                gridColumn: "span 2",
+                marginTop: 6,
+                paddingTop: 6,
+                borderTop: "1px solid var(--border)",
+              }}
+            />
+            <span style={{ color: "var(--text-muted)" }}>Discrepancy</span>
+            <strong
+              style={{
+                textAlign: "right",
+                color:
+                  Math.abs(discrepancy) < 0.01
+                    ? "var(--status-green)"
+                    : "var(--ferrocrete-red)",
+              }}
+            >
+              {fmtMoneyShort(discrepancy)}
+              {Math.abs(discrepancy) < 0.01 ? " ✓" : ""}
+            </strong>
           </div>
         </div>
       </div>
@@ -760,201 +823,604 @@ const workflowKeys = {
   sent_to_gc: true,
 };
 
-// ─── Release line row ────────────────────────────────────────────────
+// ─── Stage table (one section: Subs/Vendors or Non-Prelimed) ─────────
 
-function ReleaseLineRow({
+type OrderedLine = { line: ReleaseLine; depth: number };
+
+type WaiverChanged = (
+  subId: string,
+  waiverType: ReleaseType,
+  action: "upload" | "delete"
+) => void;
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const money = (billed: unknown, check: unknown) =>
+  parseFloat(String(billed) || "0") - parseFloat(String(check) || "0");
+
+function StageTable({
+  title,
+  rows,
+  nonPrelimed,
+  canEdit,
+  waiverIndex,
+  expandedSub,
+  onToggleExpand,
+  onChange,
+  onRemove,
+  onWaiverChanged,
+  onError,
+}: {
+  title: string;
+  rows: OrderedLine[];
+  nonPrelimed: boolean;
+  canEdit: boolean;
+  waiverIndex: Map<string, Waiver>;
+  expandedSub: string | null;
+  onToggleExpand: (subId: string) => void;
+  onChange: (subId: string, patch: Partial<ReleaseLine>) => void;
+  onRemove: (subId: string) => void;
+  onWaiverChanged: WaiverChanged;
+  onError: (msg: string) => void;
+}) {
+  if (rows.length === 0) return null;
+  const billed = rows.reduce(
+    (s, { line }) => s + parseFloat(String(line.billed_amount) || "0"),
+    0
+  );
+  const check = rows.reduce(
+    (s, { line }) => s + parseFloat(String(line.check_amount) || "0"),
+    0
+  );
+  const colCount = nonPrelimed ? 6 : 7;
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div
+        style={{
+          fontFamily:
+            "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+          fontSize: 11,
+          letterSpacing: 1.5,
+          textTransform: "uppercase",
+          color: "var(--text-muted)",
+          marginBottom: 6,
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", minWidth: nonPrelimed ? 640 : 820 }}
+        >
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
+              <th style={{ ...thStyle, textAlign: "left" }}>Sub</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Billed</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Check</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Difference</th>
+              {!nonPrelimed && <th style={thStyle}>Check type</th>}
+              <th style={thStyle}>Stage</th>
+              <th style={thStyle}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ line, depth }) => (
+              <StageRow
+                key={line.id || line.sub_id}
+                line={line}
+                depth={depth}
+                nonPrelimed={nonPrelimed}
+                canEdit={canEdit}
+                waiverIndex={waiverIndex}
+                expanded={expandedSub === line.sub_id}
+                onToggle={() => onToggleExpand(line.sub_id)}
+                onChange={(patch) => onChange(line.sub_id, patch)}
+                onRemove={() => onRemove(line.sub_id)}
+                onWaiverChanged={onWaiverChanged}
+                onError={onError}
+              />
+            ))}
+            <tr>
+              <td style={totalLabelStyle}>{title} total</td>
+              <td style={totalValueStyle}>{fmtMoneyShort(billed)}</td>
+              <td style={totalValueStyle}>{fmtMoneyShort(check)}</td>
+              <td style={totalValueStyle}>{fmtMoneyShort(billed - check)}</td>
+              <td colSpan={colCount - 4}></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StageRow({
   line,
   depth,
-  waiverIndex,
+  nonPrelimed,
   canEdit,
-  removable,
-  onRemove,
+  waiverIndex,
+  expanded,
+  onToggle,
   onChange,
+  onRemove,
   onWaiverChanged,
   onError,
 }: {
   line: ReleaseLine;
   depth: number;
-  waiverIndex: Map<string, Waiver>;
+  nonPrelimed: boolean;
   canEdit: boolean;
-  removable: boolean;
-  onRemove: () => void;
+  waiverIndex: Map<string, Waiver>;
+  expanded: boolean;
+  onToggle: () => void;
   onChange: (patch: Partial<ReleaseLine>) => void;
-  onWaiverChanged: () => Promise<void> | void;
+  onRemove: () => void;
+  onWaiverChanged: WaiverChanged;
   onError: (msg: string) => void;
 }) {
   const saved = Boolean(line.id);
+  const stage = deriveStage(line, nonPrelimed);
+  const overdue = line.is_overdue && stage !== "complete" && stage !== "n/a";
+  const hasWaivers = (["CP", "UP", "CF", "UF"] as const).some((t) =>
+    waiverIndex.has(`${line.id}:${t}`)
+  );
+  const isEmpty =
+    parseFloat(String(line.billed_amount) || "0") === 0 &&
+    parseFloat(String(line.check_amount) || "0") === 0;
+  const removable = canEdit && !hasWaivers && isEmpty;
+  const colCount = nonPrelimed ? 6 : 7;
+
   return (
-    <tr style={{ borderBottom: "1px solid var(--border)" }}>
-      <td
-        style={{
-          padding: "8px 8px 8px " + (8 + depth * 18) + "px",
-          fontSize: 14,
-          minWidth: 220,
-          maxWidth: 320,
-        }}
-      >
-        {depth > 0 && (
-          <span style={{ color: "var(--text-muted)", marginRight: 6 }}>↳</span>
+    <>
+      <tr style={{ borderBottom: "1px solid var(--border)" }}>
+        <td
+          style={{
+            padding: "8px 8px 8px " + (8 + depth * 18) + "px",
+            fontSize: 14,
+            minWidth: 200,
+            maxWidth: 300,
+          }}
+        >
+          {depth > 0 && (
+            <span style={{ color: "var(--text-muted)", marginRight: 6 }}>↳</span>
+          )}
+          {removable && (
+            <button
+              type="button"
+              onClick={onRemove}
+              title="Remove this sub from the tracker"
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--ferrocrete-red)",
+                cursor: "pointer",
+                padding: "0 6px 0 0",
+                fontSize: 13,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          )}
+          {line.sub_name ?? "(unnamed sub)"}
+          {!saved && (
+            <span
+              style={{
+                marginLeft: 6,
+                fontFamily:
+                  "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+                fontSize: 9,
+                letterSpacing: 0.5,
+                textTransform: "uppercase",
+                color: "var(--status-amber)",
+              }}
+              title="Save to persist this sub"
+            >
+              unsaved
+            </span>
+          )}
+        </td>
+        <td style={{ padding: "6px 8px", width: 120 }}>
+          <input
+            type="number"
+            step="0.01"
+            className="input"
+            value={line.billed_amount}
+            onChange={(e) => onChange({ billed_amount: e.target.value })}
+            disabled={!canEdit}
+            style={{ textAlign: "right", fontSize: 13 }}
+          />
+        </td>
+        <td style={{ padding: "6px 8px", width: 120 }}>
+          <input
+            type="number"
+            step="0.01"
+            className="input"
+            value={line.check_amount}
+            onChange={(e) => onChange({ check_amount: e.target.value })}
+            disabled={!canEdit}
+            style={{ textAlign: "right", fontSize: 13 }}
+          />
+        </td>
+        <td
+          style={{
+            padding: "6px 8px",
+            width: 110,
+            textAlign: "right",
+            fontFamily:
+              "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+            fontSize: 13,
+            color:
+              Math.abs(money(line.billed_amount, line.check_amount)) > 0.01
+                ? "var(--status-amber)"
+                : "var(--text-muted)",
+          }}
+          title={line.difference_note ?? ""}
+        >
+          {fmtMoneyShort(money(line.billed_amount, line.check_amount))}
+        </td>
+        {!nonPrelimed && (
+          <td style={{ padding: "6px 8px", width: 110 }}>
+            <select
+              className="input"
+              value={line.check_type ?? ""}
+              onChange={(e) =>
+                onChange({ check_type: (e.target.value || null) as CheckType | null })
+              }
+              disabled={!canEdit}
+              style={{ fontSize: 13 }}
+            >
+              <option value="">—</option>
+              <option value="joint">Joint</option>
+              <option value="individual">Individual</option>
+              <option value="none">None</option>
+            </select>
+          </td>
         )}
-        {removable && (
+        <td style={{ padding: "6px 8px" }}>
+          <span className={`pill ${stagePillClass(stage, overdue)}`}>
+            {STAGE_LABEL[stage]}
+            {overdue ? " · overdue" : ""}
+          </span>
+        </td>
+        <td style={{ padding: "6px 8px", textAlign: "right" }}>
           <button
             type="button"
-            onClick={onRemove}
-            title="Remove this sub from the tracker"
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--ferrocrete-red)",
-              cursor: "pointer",
-              padding: "0 6px 0 0",
-              fontSize: 13,
-              lineHeight: 1,
-            }}
+            onClick={onToggle}
+            className="btn"
+            style={{ fontSize: 12, padding: "3px 8px" }}
+            title="Show the stage detail"
           >
-            ×
+            {expanded ? "Hide" : "Steps"} {expanded ? "▲" : "▼"}
           </button>
-        )}
-        {line.sub_name ?? "(unnamed sub)"}
-        {!saved && (
-          <span
-            style={{
-              marginLeft: 6,
-              fontFamily:
-                "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
-              fontSize: 9,
-              letterSpacing: 0.5,
-              textTransform: "uppercase",
-              color: "var(--status-amber)",
-            }}
-            title="Save to persist this sub and enable waiver upload"
-          >
-            unsaved
-          </span>
-        )}
-      </td>
-      <td style={{ padding: "6px 8px", width: 130 }}>
-        <input
-          type="number"
-          step="0.01"
-          className="input"
-          value={line.billed_amount}
-          onChange={(e) => onChange({ billed_amount: e.target.value })}
-          disabled={!canEdit}
-          style={{ textAlign: "right", fontSize: 13 }}
-        />
-      </td>
-      <td style={{ padding: "6px 8px", width: 130 }}>
-        <input
-          type="number"
-          step="0.01"
-          className="input"
-          value={line.check_amount}
-          onChange={(e) => onChange({ check_amount: e.target.value })}
-          disabled={!canEdit}
-          style={{ textAlign: "right", fontSize: 13 }}
-        />
-      </td>
-      <td style={{ padding: "6px 8px", width: 95 }}>
-        <select
-          className="input"
-          value={line.release_type ?? ""}
-          onChange={(e) =>
-            onChange({
-              release_type: (e.target.value || null) as ReleaseType | null,
-            })
-          }
-          disabled={!canEdit}
-          style={{ fontSize: 13 }}
-        >
-          <option value="">—</option>
-          <option value="CP">CP</option>
-          <option value="UP">UP</option>
-          <option value="CF">CF</option>
-          <option value="UF">UF</option>
-        </select>
-      </td>
-      <td style={{ padding: "6px 8px", width: 100 }}>
-        <select
-          className="input"
-          value={line.exception ?? ""}
-          onChange={(e) => onChange({ exception: e.target.value || null })}
-          disabled={!canEdit}
-          style={{ fontSize: 13 }}
-        >
-          <option value="">—</option>
-          <option value="N">N</option>
-          <option value="Y">Y</option>
-          <option value="N/A">N/A</option>
-        </select>
-      </td>
-      <td style={{ padding: "6px 8px", width: 115 }}>
-        <select
-          className="input"
-          value={line.prev_month_status ?? ""}
-          onChange={(e) =>
-            onChange({ prev_month_status: e.target.value || null })
-          }
-          disabled={!canEdit}
-          style={{ fontSize: 13 }}
-        >
-          <option value="">—</option>
-          <option value="Received">Received</option>
-          <option value="Requested">Requested</option>
-          <option value="Pending">Pending</option>
-        </select>
-      </td>
-      <td style={{ padding: "6px 8px" }}>
-        {saved ? (
-          <WaiverCell
-            line={line}
-            waiverIndex={waiverIndex}
-            canEdit={canEdit}
-            onWaiverChanged={onWaiverChanged}
-            onError={onError}
-          />
-        ) : (
-          <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
-            Save to add waivers
-          </span>
-        )}
-      </td>
-    </tr>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={colCount} style={{ padding: 0 }}>
+            <StageStrip
+              line={line}
+              nonPrelimed={nonPrelimed}
+              canEdit={canEdit}
+              saved={saved}
+              waiverIndex={waiverIndex}
+              onChange={onChange}
+              onWaiverChanged={onWaiverChanged}
+              onError={onError}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
-// ─── Waiver cell (4 slots: CP/UP/CF/UF) ──────────────────────────────
+// ─── Stage strip: Bill -> CP/CF -> Check -> UP/UF, with mark-as actions ─
 
-function WaiverCell({
+function StageStrip({
   line,
-  waiverIndex,
+  nonPrelimed,
   canEdit,
+  saved,
+  waiverIndex,
+  onChange,
   onWaiverChanged,
   onError,
 }: {
   line: ReleaseLine;
-  waiverIndex: Map<string, Waiver>;
+  nonPrelimed: boolean;
   canEdit: boolean;
-  onWaiverChanged: () => Promise<void> | void;
+  saved: boolean;
+  waiverIndex: Map<string, Waiver>;
+  onChange: (patch: Partial<ReleaseLine>) => void;
+  onWaiverChanged: WaiverChanged;
   onError: (msg: string) => void;
 }) {
-  const types: ReleaseType[] = ["CP", "UP", "CF", "UF"];
   return (
-    <div style={{ display: "flex", gap: 4 }}>
-      {types.map((t) => {
-        const w = waiverIndex.get(`${line.id}:${t}`);
-        return (
-          <WaiverSlot
-            key={t}
-            type={t}
-            existing={w}
-            releaseLineId={line.id}
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 14,
+        padding: "12px 14px",
+        background: "var(--accent-dim)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      {/* Bill */}
+      <StageGroup title="Bill" status={line.bill_status}>
+        <DateLine label="requested" value={line.bill_requested_at} />
+        <DateLine label="due" value={line.bill_due_at} />
+        <DateLine label="received" value={line.bill_received_at} />
+        {canEdit && (
+          <div style={stripBtnRow}>
+            <MarkBtn
+              onClick={() =>
+                onChange({ bill_status: "requested", bill_requested_at: todayISO() })
+              }
+            >
+              Requested
+            </MarkBtn>
+            <MarkBtn
+              onClick={() =>
+                onChange({ bill_status: "received", bill_received_at: todayISO() })
+              }
+            >
+              Received
+            </MarkBtn>
+            <MarkBtn onClick={() => onChange({ bill_status: "not_applicable" })}>
+              N/A
+            </MarkBtn>
+          </div>
+        )}
+      </StageGroup>
+
+      {/* Conditional CP/CF (prelimed only) */}
+      {!nonPrelimed && (
+        <StageGroup title="CP / CF" status={line.conditional_status}>
+          <DateLine label="received" value={line.conditional_received_at} />
+          <DateLine label="sent" value={line.conditional_sent_at} />
+          <WaiverRow
+            line={line}
+            types={["CP", "CF"]}
+            saved={saved}
             canEdit={canEdit}
+            waiverIndex={waiverIndex}
             onWaiverChanged={onWaiverChanged}
             onError={onError}
           />
-        );
-      })}
+          {canEdit && (
+            <div style={stripBtnRow}>
+              <MarkBtn onClick={() => onChange({ conditional_status: "verified" })}>
+                Verified
+              </MarkBtn>
+              <MarkBtn
+                onClick={() =>
+                  onChange({ conditional_status: "sent_to_gc", conditional_sent_at: todayISO() })
+                }
+              >
+                Sent to GC
+              </MarkBtn>
+            </div>
+          )}
+        </StageGroup>
+      )}
+
+      {/* Check */}
+      <StageGroup title="Check">
+        <DateLine label="received" value={line.check_received_at} />
+        <DateLine label="released to sub" value={line.check_sent_to_sub_at} />
+        {canEdit && (
+          <div style={stripBtnRow}>
+            <MarkBtn onClick={() => onChange({ check_received_at: todayISO() })}>
+              Check received
+            </MarkBtn>
+            <MarkBtn onClick={() => onChange({ check_sent_to_sub_at: todayISO() })}>
+              Released to sub
+            </MarkBtn>
+          </div>
+        )}
+      </StageGroup>
+
+      {/* Unconditional UP/UF (prelimed only) */}
+      {!nonPrelimed && (
+        <StageGroup title="UP / UF" status={line.unconditional_status}>
+          <DateLine label="requested" value={line.unconditional_requested_at} />
+          <DateLine label="received" value={line.unconditional_received_at} />
+          <DateLine label="sent" value={line.unconditional_sent_at} />
+          <WaiverRow
+            line={line}
+            types={["UP", "UF"]}
+            saved={saved}
+            canEdit={canEdit}
+            waiverIndex={waiverIndex}
+            onWaiverChanged={onWaiverChanged}
+            onError={onError}
+          />
+          {canEdit && (
+            <div style={stripBtnRow}>
+              <MarkBtn
+                onClick={() =>
+                  onChange({
+                    unconditional_status: "requested",
+                    unconditional_requested_at: todayISO(),
+                  })
+                }
+              >
+                Requested
+              </MarkBtn>
+              <MarkBtn onClick={() => onChange({ unconditional_status: "verified" })}>
+                Verified
+              </MarkBtn>
+              <MarkBtn
+                onClick={() =>
+                  onChange({
+                    unconditional_status: "sent_to_gc",
+                    unconditional_sent_at: todayISO(),
+                  })
+                }
+              >
+                Sent to GC
+              </MarkBtn>
+            </div>
+          )}
+        </StageGroup>
+      )}
+
+      {/* Difference note */}
+      <div style={{ flex: "1 1 220px", minWidth: 220 }}>
+        <div style={stripGroupTitle}>Difference note</div>
+        <input
+          type="text"
+          className="input"
+          value={line.difference_note ?? ""}
+          onChange={(e) => onChange({ difference_note: e.target.value || null })}
+          disabled={!canEdit}
+          placeholder="e.g. Amount to be deposited to Ferrocrete account"
+          style={{ fontSize: 13, width: "100%" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function WaiverRow({
+  line,
+  types,
+  saved,
+  canEdit,
+  waiverIndex,
+  onWaiverChanged,
+  onError,
+}: {
+  line: ReleaseLine;
+  types: ReleaseType[];
+  saved: boolean;
+  canEdit: boolean;
+  waiverIndex: Map<string, Waiver>;
+  onWaiverChanged: WaiverChanged;
+  onError: (msg: string) => void;
+}) {
+  if (!saved) {
+    return (
+      <div style={{ fontSize: 11, color: "var(--text-faint)", margin: "4px 0" }}>
+        Save to add waivers
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: 4, margin: "4px 0" }}>
+      {types.map((t) => (
+        <WaiverSlot
+          key={t}
+          type={t}
+          existing={waiverIndex.get(`${line.id}:${t}`)}
+          releaseLineId={line.id}
+          canEdit={canEdit}
+          onWaiverChanged={(wt, action) => onWaiverChanged(line.sub_id, wt, action)}
+          onError={onError}
+        />
+      ))}
+    </div>
+  );
+}
+
+const stripBtnRow: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 4,
+  marginTop: 6,
+};
+const stripGroupTitle: React.CSSProperties = {
+  fontFamily:
+    "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+  fontSize: 10,
+  letterSpacing: 1,
+  textTransform: "uppercase",
+  color: "var(--text-muted)",
+  marginBottom: 4,
+};
+
+function StageGroup({
+  title,
+  status,
+  children,
+}: {
+  title: string;
+  status?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ flex: "0 0 auto", minWidth: 150 }}>
+      <div style={stripGroupTitle}>
+        {title}
+        {status ? (
+          <span style={{ marginLeft: 6, color: "var(--text-primary)", textTransform: "none", letterSpacing: 0 }}>
+            {status.replace(/_/g, " ")}
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DateLine({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null;
+  return (
+    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+      {label}: <strong style={{ color: "var(--text-primary)" }}>{value}</strong>
+    </div>
+  );
+}
+
+function MarkBtn({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="btn"
+      style={{ fontSize: 11, padding: "2px 7px" }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DerivedFlag({ label, on }: { label: string; on: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14 }}>
+      <span
+        style={{
+          width: 14,
+          textAlign: "center",
+          color: on ? "var(--status-green)" : "var(--text-faint)",
+        }}
+      >
+        {on ? "●" : "○"}
+      </span>
+      <span style={{ color: on ? "var(--text-primary)" : "var(--text-muted)" }}>
+        {label}
+      </span>
+      <span
+        style={{
+          fontFamily:
+            "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+          fontSize: 9,
+          letterSpacing: 1,
+          textTransform: "uppercase",
+          color: "var(--text-faint)",
+        }}
+      >
+        derived
+      </span>
     </div>
   );
 }
@@ -971,7 +1437,7 @@ function WaiverSlot({
   existing: Waiver | undefined;
   releaseLineId: string;
   canEdit: boolean;
-  onWaiverChanged: () => Promise<void> | void;
+  onWaiverChanged: (waiverType: ReleaseType, action: "upload" | "delete") => void;
   onError: (msg: string) => void;
 }) {
   const [uploading, setUploading] = useState(false);
@@ -985,7 +1451,7 @@ function WaiverSlot({
       await api.post(`/release-lines/${releaseLineId}/waivers`, undefined, {
         formData: fd,
       });
-      await onWaiverChanged();
+      await onWaiverChanged(type, "upload");
     } catch (e) {
       onError(formatApiError(e));
     } finally {
@@ -1009,7 +1475,7 @@ function WaiverSlot({
     if (!existing || !canEdit) return;
     try {
       await api.delete(`/waivers/${existing.id}`);
-      await onWaiverChanged();
+      await onWaiverChanged(type, "delete");
     } catch (e) {
       onError(formatApiError(e));
     }
@@ -1124,6 +1590,33 @@ function WaiverSlot({
 }
 
 // ─── Other small components ──────────────────────────────────────────
+
+function ReconLine({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+}) {
+  return (
+    <>
+      <span style={{ color: strong ? "var(--text-primary)" : "var(--text-muted)" }}>
+        {label}
+      </span>
+      <span
+        style={{
+          textAlign: "right",
+          fontWeight: strong ? 700 : 400,
+          color: "var(--text-primary)",
+        }}
+      >
+        {fmtMoneyShort(value)}
+      </span>
+    </>
+  );
+}
 
 function WorkflowCheckbox({
   label,

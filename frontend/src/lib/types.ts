@@ -44,6 +44,7 @@ export interface Project {
   started_at: ISODate | null;
   substantial_completion_at: ISODate | null;
   notes: string | null;
+  grace_days: number;
   created_by: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -188,17 +189,46 @@ export interface Sub {
   updated_at: ISODateTime;
 }
 
+export type BillStatus =
+  | "not_requested" | "requested" | "received" | "not_applicable";
+export type WaiverStatus =
+  | "not_requested" | "requested" | "received" | "verified" | "sent_to_gc" | "not_applicable";
+export type CheckType = "joint" | "individual" | "none";
+export type Stage =
+  | "n/a" | "awaiting_bill" | "awaiting_conditional" | "awaiting_gc_payment"
+  | "awaiting_check_release" | "awaiting_unconditional" | "complete";
+
 export interface ReleaseLine {
   id: UUID;
   release_tracker_id: UUID;
   sub_id: UUID;
   sub_name: string | null;
   parent_sub_id: UUID | null;
+  is_non_prelimed: boolean;
   billed_amount: Money;
   check_amount: Money;
   release_type: ReleaseType | null;
   exception: string | null;
   prev_month_status: string | null;
+  // Per-line lifecycle (WI-2)
+  bill_status: BillStatus;
+  bill_requested_at: ISODate | null;
+  bill_received_at: ISODate | null;
+  bill_due_at: ISODate | null;
+  conditional_status: WaiverStatus;
+  conditional_received_at: ISODate | null;
+  conditional_sent_at: ISODate | null;
+  check_type: CheckType | null;
+  check_received_at: ISODate | null;
+  check_sent_to_sub_at: ISODate | null;
+  unconditional_status: WaiverStatus;
+  unconditional_requested_at: ISODate | null;
+  unconditional_received_at: ISODate | null;
+  unconditional_sent_at: ISODate | null;
+  difference_note: string | null;
+  // Derived, from the server
+  stage: Stage | null;
+  is_overdue: boolean;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -229,6 +259,11 @@ export interface ReleaseTracker {
   notes: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+  // Derived stage summary (WI-2)
+  stage_counts?: Record<string, number> | null;
+  applicable_count?: number | null;
+  complete_count?: number | null;
+  overdue_count?: number | null;
 }
 
 export interface ReleaseTrackerDetail extends ReleaseTracker {

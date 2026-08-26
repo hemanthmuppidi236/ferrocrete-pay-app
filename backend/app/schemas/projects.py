@@ -32,6 +32,7 @@ class ProjectBase(BaseModel):
     started_at: Optional[date] = None
     substantial_completion_at: Optional[date] = None
     notes: Optional[str] = None
+    grace_days: int = 14   # bill/CP-CF follow-up window (WI-2)
 
 
 class ProjectCreate(ProjectBase):
@@ -53,6 +54,7 @@ class ProjectUpdate(BaseModel):
     started_at: Optional[date] = None
     substantial_completion_at: Optional[date] = None
     notes: Optional[str] = None
+    grace_days: Optional[int] = None
 
 
 class Project(ProjectBase):

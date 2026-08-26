@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import { fmtMoneyShort } from "@/lib/payAppMath";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { trackerStageSummary, trackerStatus } from "@/lib/releaseStage";
 
 export default function ProjectReleasesPage({
   params,
@@ -242,8 +243,12 @@ export default function ProjectReleasesPage({
                 >
                   <div className="pay-app-row-left">
                     <div className="pay-app-row-period">{t.period}</div>
-                    <div className="pay-app-row-app-no">
-                      <WorkflowDots tracker={t} />
+                    <div
+                      className="pay-app-row-app-no"
+                      style={{ color: t.overdue_count ? "var(--status-red)" : undefined }}
+                    >
+                      {trackerStageSummary(t)}
+                      {t.overdue_count ? ` · ${t.overdue_count} overdue` : ""}
                     </div>
                   </div>
                   <div className="pay-app-row-right">
@@ -264,56 +269,8 @@ export default function ProjectReleasesPage({
   );
 }
 
-function WorkflowDots({ tracker }: { tracker: ReleaseTracker }) {
-  const steps = [
-    { key: "req", on: tracker.requested_releases, label: "Requested" },
-    { key: "ver", on: tracker.verified_releases, label: "Verified" },
-    { key: "app", on: tracker.approved, label: "Approved" },
-    { key: "snt", on: tracker.sent_to_gc, label: "Sent" },
-  ];
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        gap: 5,
-        fontFamily: "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
-        fontSize: 10,
-        color: "var(--text-muted)",
-        textTransform: "uppercase",
-        letterSpacing: 1,
-      }}
-    >
-      {steps.map((s) => (
-        <span
-          key={s.key}
-          style={{
-            color: s.on ? "var(--status-green)" : "var(--text-faint)",
-          }}
-          title={s.label}
-        >
-          {s.on ? "●" : "○"} {s.label}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 function WorkflowStatus({ tracker }: { tracker: ReleaseTracker }) {
-  let label = "Draft";
-  let cls = "pill-amber";
-  if (tracker.sent_to_gc) {
-    label = "Sent";
-    cls = "pill-green";
-  } else if (tracker.approved) {
-    label = "Approved";
-    cls = "pill-blue";
-  } else if (tracker.verified_releases) {
-    label = "Verified";
-    cls = "pill-blue";
-  } else if (tracker.requested_releases) {
-    label = "Requested";
-    cls = "pill-amber";
-  }
+  const { label, cls } = trackerStatus(tracker);
   return <span className={`pill ${cls}`}>{label}</span>;
 }
 
