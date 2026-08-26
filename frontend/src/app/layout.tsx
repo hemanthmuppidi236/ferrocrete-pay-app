@@ -11,14 +11,23 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+// Apply the saved theme before first paint so dark mode does not flash light
+// on load. The topbar keeps managing the toggle after hydration.
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('theme');if(t!=='dark')t='light';document.documentElement.dataset.theme=t;}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="app-shell">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+      </head>
+      <body className="app-shell" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
