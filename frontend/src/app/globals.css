@@ -116,7 +116,7 @@ body {
   overflow-x: hidden;
   min-height: 100vh;
 }
-body[data-theme="dark"] { background: #121211; }
+[data-theme="dark"] body, body[data-theme="dark"] { background: #121211; }
 
 /* ── App shell with cream→peach gradient mesh ────────────────── */
 .app-shell {
