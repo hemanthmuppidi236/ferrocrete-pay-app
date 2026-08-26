@@ -764,7 +764,8 @@ function WaiverActions({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${project.project_no}_${payApp.period}_Ferrocrete_${type}.pdf`;
+      const safeName = (project.name || "").replace(/[\\/:*?"<>|]+/g, "").trim();
+      a.download = `${project.project_no}_${safeName}_App${payApp.app_no}_Ferrocrete_${type}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();

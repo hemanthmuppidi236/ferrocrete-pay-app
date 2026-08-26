@@ -11,6 +11,7 @@ is a constant here. The Customer is the project's GC, the Owner is a project
 field, and the Job Location is the project address.
 """
 
+import re
 from decimal import Decimal, InvalidOperation
 
 # Ferrocrete's own identity (the Claimant on every one of its releases).
@@ -136,26 +137,34 @@ def _money(x) -> str:
     return f"${d:,.2f}"
 
 
-def _joined(*parts) -> str:
-    return ", ".join(p.strip() for p in parts if p and str(p).strip())
+def _safe(s) -> str:
+    return re.sub(r'[\\/:*?"<>|]+', "", str(s or "")).strip()
 
 
 def build_waiver(waiver_type: str, *, project: dict, pay_app: dict) -> dict:
     """Return the fully-mapped field set for one waiver form.
 
-    project: needs name, project_no, gc_company, gc_address, address,
-             owner_name, owner_address.
-    pay_app: needs period_to, current_payment_due.
+    Matches the native form: the name fields show names only (no address);
+    Job Location carries the full job address.
+
+    project: needs name, project_no, gc_company, address, owner_name.
+    pay_app: needs app_no, period, period_to, current_payment_due.
     """
     wt = waiver_type.upper()
     if wt not in WAIVER_TYPES:
         raise ValueError(f"Unknown waiver type: {waiver_type}")
 
-    customer = _joined(project.get("gc_company"), project.get("gc_address")) \
-        or (project.get("gc_company") or "")
-    owner = _joined(project.get("owner_name"), project.get("owner_address")) \
-        or (project.get("owner_name") or "")
+    customer = project.get("gc_company") or ""      # Name of Customer (GC), name only
+    owner = project.get("owner_name") or ""         # Owner, name only
     amount = _money(pay_app.get("current_payment_due"))
+
+    # Filename includes project name + application number, per request.
+    app_no = pay_app.get("app_no")
+    app_part = f"App{app_no}" if app_no not in (None, "") else (pay_app.get("period") or "")
+    filename = "_".join(p for p in [
+        _safe(project.get("project_no")), _safe(project.get("name")),
+        app_part, "Ferrocrete", wt,
+    ] if p) + ".pdf"
 
     return {
         "waiver_type": wt,
@@ -164,9 +173,8 @@ def build_waiver(waiver_type: str, *, project: dict, pay_app: dict) -> dict:
         "body": BODY[wt],
         "exceptions": list(EXCEPTIONS[wt]),
 
-        "claimant_name": CLAIMANT_NAME,
-        "claimant_address": CLAIMANT_ADDRESS,
-        "customer": customer,                 # Name of Customer (GC)
+        "claimant_name": CLAIMANT_NAME,       # name only, matches native
+        "customer": customer,                 # Name of Customer (GC), name only
         "job_location": project.get("address") or "",
         "owner": owner,
         "through_date": pay_app.get("period_to") if HAS_THROUGH_DATE[wt] else None,
@@ -178,8 +186,7 @@ def build_waiver(waiver_type: str, *, project: dict, pay_app: dict) -> dict:
         "amount_of_check": amount if SHOWS_AMOUNT[wt] else None,
 
         "claimant_title": CLAIMANT_TITLE,
-        "date_of_signature": None,            # signed and dated by hand
+        "date_of_signature": None,            # dated by hand (no signature added)
 
-        "filename": f"{project.get('project_no', '')}_"
-                    f"{(pay_app.get('period') or '')}_Ferrocrete_{wt}.pdf",
+        "filename": filename,
     }
