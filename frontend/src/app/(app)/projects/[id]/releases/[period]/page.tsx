@@ -276,6 +276,17 @@ export default function ReleaseTrackerDetailPage({
     );
   }
 
+  function addUnbilledRow() {
+    setUnbilled((prev) => [
+      ...prev,
+      { description: null, amount: "0", sort_order: prev.length },
+    ]);
+  }
+
+  function removeUnbilledRow(idx: number) {
+    setUnbilled((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   function updateUnbilled(idx: number, patch: Partial<ReleaseUnbilledEntry>) {
     setUnbilled((prev) =>
       prev.map((u, i) => (i === idx ? { ...u, ...patch } : u))
@@ -518,16 +529,16 @@ export default function ReleaseTrackerDetailPage({
                 style={{ display: "flex", flexDirection: "column", gap: 8 }}
               >
                 {/* These three are DERIVED from the per-sub lifecycle below. */}
-                <DerivedFlag label="Requested releases" on={tracker.requested_releases} />
-                <DerivedFlag label="Verified releases" on={tracker.verified_releases} />
-                {/* Approved is the one manually-set flag (GC approved the pay app). */}
+                <DerivedFlag label="Bills received" on={tracker.requested_releases} />
+                <DerivedFlag label="CP/CF sent to GC" on={tracker.verified_releases} />
+                {/* The one manually-set flag. */}
                 <WorkflowCheckbox
-                  label="Approved"
+                  label="GC approved / payment received"
                   checked={tracker.approved}
                   disabled={!canEdit}
                   onChange={() => toggleWorkflow("approved" as never)}
                 />
-                <DerivedFlag label="Sent to GC" on={tracker.sent_to_gc} />
+                <DerivedFlag label="UP/UF received" on={tracker.sent_to_gc} />
               </div>
               <div
                 style={{
@@ -536,7 +547,7 @@ export default function ReleaseTrackerDetailPage({
                   color: "var(--text-faint)",
                 }}
               >
-                Requested / Verified / Sent are derived from the sub stages below.
+                Bills received / CP/CF sent / UP/UF received are derived from the sub stages below.
               </div>
               {tracker.conditional_through_date && (
                 <div
@@ -788,8 +799,8 @@ export default function ReleaseTrackerDetailPage({
         <div className="section-card glass" style={{ marginBottom: 16 }}>
           <div className="section-header">
             <h2 className="section-title">Previous month(s) unbilled balance</h2>
-            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-              5 row slots
+            <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+              Rarely used
             </div>
           </div>
 
@@ -801,6 +812,7 @@ export default function ReleaseTrackerDetailPage({
                 <th style={{ ...thStyle, textAlign: "right", width: 160 }}>
                   Amount
                 </th>
+                <th style={{ width: 30 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -835,15 +847,42 @@ export default function ReleaseTrackerDetailPage({
                       style={{ textAlign: "right", fontSize: 14 }}
                     />
                   </td>
+                  <td style={{ padding: "6px 4px", textAlign: "center" }}>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => removeUnbilledRow(idx)}
+                        title="Remove row"
+                        style={{
+                          background: "none", border: "none",
+                          color: "var(--ferrocrete-red)", cursor: "pointer",
+                          fontSize: 14, lineHeight: 1,
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               <tr>
                 <td style={totalLabelStyle}>Unbilled total</td>
                 <td style={totalValueStyle}>{fmtMoneyShort(unbilledTotal)}</td>
+                <td />
               </tr>
             </tbody>
           </table>
           </div>
+          {canEdit && (
+            <button
+              type="button"
+              className="btn"
+              onClick={addUnbilledRow}
+              style={{ marginTop: 10, fontSize: 13 }}
+            >
+              + Add row
+            </button>
+          )}
         </div>
 
         {/* Buildertrend reconciliation */}
@@ -1398,9 +1437,10 @@ function StageStrip({
   return (
     <div
       style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 14,
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(172px, 1fr))",
+        gap: 12,
+        alignItems: "start",
         padding: "12px 14px",
         background: "var(--accent-dim)",
         borderBottom: "1px solid var(--border)",
@@ -1408,7 +1448,7 @@ function StageStrip({
     >
       {/* Status banner: no-email warning + last emailed */}
       {(saved && !line.has_email) || line.last_reminder ? (
-        <div style={{ flex: "1 1 100%", display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 2 }}>
+        <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 2 }}>
           {saved && !line.has_email && (
             <span style={{ fontSize: 12, color: "var(--status-amber)" }}>
               ⚠ No email on file for this sub — add one on{" "}
@@ -1491,8 +1531,8 @@ function StageStrip({
         </StageGroup>
       )}
 
-      {/* Check */}
-      <StageGroup title="Check">
+      {/* Check received (GC pays) + released to sub (Paid Sub) */}
+      <StageGroup title="Check / Paid Sub">
         <DateLine label="received" value={line.check_received_at} />
         <DateLine label="released to sub" value={line.check_sent_to_sub_at} />
         {canEdit && (
@@ -1563,7 +1603,7 @@ function StageStrip({
       )}
 
       {/* Difference note */}
-      <div style={{ flex: "1 1 220px", minWidth: 220 }}>
+      <div>
         <div style={stripGroupTitle}>Difference note</div>
         <input
           type="text"
@@ -1571,8 +1611,8 @@ function StageStrip({
           value={line.difference_note ?? ""}
           onChange={(e) => onChange({ difference_note: e.target.value || null })}
           disabled={!canEdit}
-          placeholder="e.g. Amount to be deposited to Ferrocrete account"
-          style={{ fontSize: 13, width: "100%" }}
+          placeholder="e.g. deposit to Ferrocrete"
+          style={{ fontSize: 12, width: "100%" }}
         />
       </div>
     </div>
@@ -1646,7 +1686,7 @@ function StageGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div style={{ flex: "0 0 auto", minWidth: 150 }}>
+    <div>
       <div style={stripGroupTitle}>
         {title}
         {status ? (

@@ -50,8 +50,8 @@ export const STAGE_LABEL: Record<Stage, string> = {
   "n/a": "N/A",
   awaiting_bill: "Awaiting bill",
   awaiting_conditional: "Awaiting CP/CF",
-  awaiting_gc_payment: "Awaiting GC payment",
-  awaiting_check_release: "Awaiting check release",
+  awaiting_gc_payment: "Awaiting GC approval / payment",
+  awaiting_check_release: "Awaiting paid sub",
   awaiting_unconditional: "Awaiting UP/UF",
   complete: "Complete",
 };
@@ -87,8 +87,8 @@ export function trackerStageSummary(t: ReleaseTracker): string {
   const order: [Stage, string][] = [
     ["awaiting_bill", "awaiting bill"],
     ["awaiting_conditional", "awaiting CP/CF"],
-    ["awaiting_gc_payment", "awaiting GC payment"],
-    ["awaiting_check_release", "awaiting check release"],
+    ["awaiting_gc_payment", "awaiting GC approval / payment"],
+    ["awaiting_check_release", "awaiting paid sub"],
     ["awaiting_unconditional", "awaiting UP/UF"],
   ];
   for (const [key, label] of order) {
@@ -100,8 +100,8 @@ export function trackerStageSummary(t: ReleaseTracker): string {
 
 // ─── Row stepper (Concept A) ─────────────────────────────────────────
 
-export const STEPPER_STAGES = ["Bill", "CP/CF", "GC pays", "Release", "UP/UF"];
-export const STEPPER_STAGES_NP = ["Bill", "Release"];
+export const STEPPER_STAGES = ["Bill", "CP/CF", "GC pays", "Paid Sub", "UP/UF"];
+export const STEPPER_STAGES_NP = ["Bill", "Paid Sub"];
 
 export type NodeState = "done" | "current" | "overdue" | "pending" | "na";
 

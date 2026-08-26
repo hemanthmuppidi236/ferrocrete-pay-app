@@ -443,17 +443,18 @@ def _autocreate_release_tracker(sb, pa: dict) -> None:
 
         # Seed lines = union of (prior tracker lines, zeroed) + (active subs not
         # already carried). Shared with the explicit POST /release-trackers path.
-        from ..core.release_carry_forward import build_seed_lines
+        from ..core.release_carry_forward import build_seed_lines, ensure_default_nonprelim_sub
+        ensure_default_nonprelim_sub(sb, project_id)
         new_lines = build_seed_lines(sb, project_id, tracker_id, period)
         if new_lines:
             sb.table("release_lines").insert(new_lines).execute()
 
-        # Seed 5 empty unbilled entries
-        sb.table("release_unbilled_entries").insert([{
+        # Seed a single empty unbilled row (more can be added on demand).
+        sb.table("release_unbilled_entries").insert({
             "release_tracker_id": tracker_id,
             "amount": "0",
-            "sort_order": i,
-        } for i in range(5)]).execute()
+            "sort_order": 0,
+        }).execute()
     except Exception as e:
         print(f"[pay_apps] auto-create release tracker failed (non-fatal): {e}", flush=True)
 

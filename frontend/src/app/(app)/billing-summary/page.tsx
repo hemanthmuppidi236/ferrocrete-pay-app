@@ -249,30 +249,26 @@ export default function BillingSummaryPage() {
                 style={{
                   width: "100%",
                   borderCollapse: "collapse",
-                  minWidth: 1920,
+                  minWidth: 1500,
                   fontSize: 13,
                 }}
               >
                 <thead>
                   <tr>
                     <Th left sticky>Job</Th>
-                    <Th>Due</Th>
+                    <Th>Billing Due Date</Th>
                     <Th right>Revised Contract</Th>
-                    <Th right>Completed</Th>
+                    <Th right>Total Completed &amp; Stored</Th>
                     <Th right>Retention</Th>
-                    <Th right>Balance</Th>
+                    <Th right>Balance to Finish</Th>
                     <Th right>Bal. W/Ret</Th>
-                    <Th right>Gross</Th>
-                    <Th right>Ret%</Th>
-                    <Th right>Billed</Th>
+                    <Th right>Gross Billing</Th>
+                    <Th right>Retention %</Th>
+                    <Th right>Billed Amount</Th>
                     <Th right>Potential Net</Th>
                     <Th>BT</Th>
-                    <Th right>Rebar</Th>
-                    <Th right>CMU</Th>
-                    <Th>CP/CF</Th>
-                    <Th>UP/UF</Th>
-                    <Th>Contact</Th>
-                    <Th>Payment Status</Th>
+                    <Th>Billing Contact</Th>
+                    <Th>Payment/Billing Status</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -298,10 +294,7 @@ export default function BillingSummaryPage() {
                       <Td />
                       <Td right bold>{money(totals.billed_amount)}</Td>
                       <Td right bold accent>{money(totals.potential_net)}</Td>
-                      <Td />
-                      <Td right bold>{money(totals.rebar)}</Td>
-                      <Td right bold>{money(totals.cmu)}</Td>
-                      <Td /><Td /><Td /><Td />
+                      <Td /><Td /><Td />
                     </tr>
                   )}
                 </tbody>
@@ -375,8 +368,8 @@ export default function BillingSummaryPage() {
         >
           Auto columns recompute from pay apps + release trackers. Potential Net =
           invoice − sub checks − previous-month unbilled (the release tracker&apos;s
-          Ferrocrete Net). Editable columns: Due, BT, Rebar, CMU, CP/CF, UP/UF,
-          Contact, Payment Status. Billing Due Date and Contact also default from
+          Ferrocrete Net). Editable columns: Billing Due Date, BT, Billing Contact,
+          Payment/Billing Status. Billing Due Date and Contact also default from
           project settings; projects marked &quot;Skip&quot; sort to the bottom.
         </div>
       </div>
@@ -434,36 +427,6 @@ function Row({
         width={140}
         keyId={`${row.project_id}-${period}-bt`}
         onSave={(v) => onSave(row.project_id, "bt_note", v)}
-      />
-      <EditCell
-        value={row.rebar ?? ""}
-        canEdit={canEdit}
-        width={80}
-        right
-        keyId={`${row.project_id}-${period}-rebar`}
-        onSave={(v) => onSave(row.project_id, "rebar", v)}
-      />
-      <EditCell
-        value={row.cmu ?? ""}
-        canEdit={canEdit}
-        width={80}
-        right
-        keyId={`${row.project_id}-${period}-cmu`}
-        onSave={(v) => onSave(row.project_id, "cmu", v)}
-      />
-      <EditCell
-        value={row.cpcf_sent}
-        canEdit={canEdit}
-        width={60}
-        keyId={`${row.project_id}-${period}-cpcf`}
-        onSave={(v) => onSave(row.project_id, "cpcf_sent", v)}
-      />
-      <EditCell
-        value={row.upuf_sent}
-        canEdit={canEdit}
-        width={60}
-        keyId={`${row.project_id}-${period}-upuf`}
-        onSave={(v) => onSave(row.project_id, "upuf_sent", v)}
       />
       <EditCell
         value={row.billing_contact}

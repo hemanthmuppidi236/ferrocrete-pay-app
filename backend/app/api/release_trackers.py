@@ -201,19 +201,20 @@ def create_release_tracker(
     tracker = res.data[0]
 
     # Seed lines = union of (prior tracker lines, zeroed) + (active subs not
-    # already carried). Shared with the pay-app auto-create path.
-    from ..core.release_carry_forward import build_seed_lines
+    # already carried). Shared with the pay-app auto-create path. First ensure
+    # the project's single catch-all non-prelim sub exists.
+    from ..core.release_carry_forward import build_seed_lines, ensure_default_nonprelim_sub
+    ensure_default_nonprelim_sub(sb, str(body.project_id))
     new_lines = build_seed_lines(sb, str(body.project_id), tracker["id"], body.period)
     if new_lines:
         sb.table("release_lines").insert(new_lines).execute()
 
-    # Always seed 5 empty unbilled entries (matches the layout's 5-row block)
-    unb_seed = [{
+    # Seed a single empty unbilled row (rarely used; more can be added on demand).
+    sb.table("release_unbilled_entries").insert({
         "release_tracker_id": tracker["id"],
         "amount": "0",
-        "sort_order": i,
-    } for i in range(5)]
-    sb.table("release_unbilled_entries").insert(unb_seed).execute()
+        "sort_order": 0,
+    }).execute()
 
     audit.log(user.id, "release_tracker", tracker["id"], "created", after=tracker)
     return tracker

@@ -44,6 +44,33 @@ def _is_unresolved_unconditional(release_type, waiver_types):
     return False
 
 
+DEFAULT_NONPRELIM_NAME = "Non-Prelim Payments"
+
+
+def ensure_default_nonprelim_sub(sb, project_id):
+    """Make sure the project has its single catch-all non-prelim sub.
+
+    Non-prelim payment detail is tracked in a separate app, so this app only
+    needs one lump line. Creates the default sub if none named like it exists.
+    Returns the default sub's id.
+    """
+    existing = (sb.table("subs")
+                .select("id, name, is_non_prelimed")
+                .eq("project_id", project_id).execute()).data or []
+    for s in existing:
+        if s.get("is_non_prelimed") and (s.get("name") or "").strip().lower() == \
+                DEFAULT_NONPRELIM_NAME.lower():
+            return s["id"]
+    res = sb.table("subs").insert({
+        "project_id": project_id,
+        "name": DEFAULT_NONPRELIM_NAME,
+        "is_non_prelimed": True,
+        "active": True,
+        "sort_order": 999,
+    }).execute()
+    return res.data[0]["id"] if res.data else None
+
+
 def build_seed_lines(sb, project_id, tracker_id, period):
     """Return the list of release_lines insert payloads for a new tracker.
 
