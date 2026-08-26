@@ -598,6 +598,13 @@ export default function PayAppDraftPage({
               </button>
             </div>
 
+            <WaiverActions
+              payApp={payApp}
+              project={project}
+              canEdit={canMoveWorkflow || role === "pe"}
+              onError={(m) => setWorkflowError(m)}
+            />
+
             <div className="preview-status">
               <span
                 className="dot"
@@ -728,6 +735,87 @@ function RetentionBillingCard({
             Shows on the Billing Summary (Retention Billed) and as a provision on
             this period&apos;s release tracker.
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WaiverActions({
+  payApp,
+  project,
+  canEdit,
+  onError,
+}: {
+  payApp: PayAppDetail;
+  project: Project;
+  canEdit: boolean;
+  onError: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [cpcfSent, setCpcfSent] = useState(payApp.cpcf_sent_at);
+  const [upufSent, setUpufSent] = useState(payApp.upuf_sent_at);
+  const ownerMissing = !project.owner_name;
+
+  async function download(type: "CP" | "UP" | "CF" | "UF") {
+    setBusy(type);
+    try {
+      const blob = await api.getBlob(`/pay-apps/${payApp.id}/waiver/${type}.pdf`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${project.project_no}_${payApp.period}_Ferrocrete_${type}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      onError(formatApiError(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function markSent(kind: "cpcf" | "upuf", sent: boolean) {
+    try {
+      const res = await api.post<{ cpcf_sent_at?: string; upuf_sent_at?: string }>(
+        `/pay-apps/${payApp.id}/mark-waiver-sent`,
+        { kind, sent }
+      );
+      if (kind === "cpcf") setCpcfSent(res.cpcf_sent_at ?? null);
+      else setUpufSent(res.upuf_sent_at ?? null);
+    } catch (e) {
+      onError(formatApiError(e));
+    }
+  }
+
+  return (
+    <div className="preview-actions" style={{ flexDirection: "column", gap: 10, marginTop: 12 }}>
+      <div className="preview-eyebrow">FERROCRETE WAIVERS</div>
+      {ownerMissing && (
+        <div style={{ fontSize: 11, color: "var(--status-amber)" }}>
+          Add the Owner in project settings for complete forms.
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {(["CP", "UP", "CF", "UF"] as const).map((t) => (
+          <button key={t} className="btn" onClick={() => download(t)} disabled={busy !== null}>
+            {busy === t ? "…" : `Download ${t}`}
+          </button>
+        ))}
+      </div>
+      {canEdit && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+            <input type="checkbox" checked={!!cpcfSent}
+              onChange={(e) => markSent("cpcf", e.target.checked)} />
+            CP/CF sent {cpcfSent ? <span style={{ color: "var(--text-muted)" }}>· {cpcfSent}</span> : null}
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+            <input type="checkbox" checked={!!upufSent}
+              onChange={(e) => markSent("upuf", e.target.checked)} />
+            UP/UF sent {upufSent ? <span style={{ color: "var(--text-muted)" }}>· {upufSent}</span> : null}
+          </label>
         </div>
       )}
     </div>

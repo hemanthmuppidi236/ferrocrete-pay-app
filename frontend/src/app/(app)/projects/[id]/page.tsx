@@ -626,6 +626,8 @@ function ProjectEditPanel({
   const [graceDays, setGraceDays] = useState(String(project.grace_days ?? 14));
   const [billingDueRule, setBillingDueRule] = useState(project.billing_due_rule ?? "");
   const [billingContact, setBillingContact] = useState(project.billing_contact ?? "");
+  const [ownerName, setOwnerName] = useState(project.owner_name ?? "");
+  const [ownerAddress, setOwnerAddress] = useState(project.owner_address ?? "");
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -675,6 +677,8 @@ function ProjectEditPanel({
       }
       setIfChanged("billing_due_rule", project.billing_due_rule ?? "", billingDueRule.trim() || null);
       setIfChanged("billing_contact", project.billing_contact ?? "", billingContact.trim() || null);
+      setIfChanged("owner_name", project.owner_name ?? "", ownerName.trim() || null);
+      setIfChanged("owner_address", project.owner_address ?? "", ownerAddress.trim() || null);
 
       if (Object.keys(payload).length === 0) {
         onCancel();
@@ -805,6 +809,24 @@ function ProjectEditPanel({
             value={billingContact}
             onChange={(e) => setBillingContact(e.target.value)}
             placeholder="Email or 'Submitted through GCPay'"
+          />
+        </Field>
+        <Field label="Owner name">
+          <input
+            type="text"
+            className="input"
+            value={ownerName}
+            onChange={(e) => setOwnerName(e.target.value)}
+            placeholder="For Ferrocrete's own waivers"
+          />
+        </Field>
+        <Field label="Owner address">
+          <input
+            type="text"
+            className="input"
+            value={ownerAddress}
+            onChange={(e) => setOwnerAddress(e.target.value)}
+            placeholder="Street, City, State ZIP"
           />
         </Field>
 

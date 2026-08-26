@@ -13,7 +13,11 @@ and release trackers.
   GET  /release-trackers/{id}/excel-url
 """
 
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import Literal
 from uuid import UUID
 
 from ..core.auth import CurrentUser, get_current_user, require_role
@@ -23,9 +27,61 @@ from ..core.config import settings
 from ..core.excel_pay_app import generate_and_store_pay_app_excel
 from ..core.pdf_pay_app import generate_and_store_pay_app_pdf
 from ..core.excel_release_tracker import generate_and_store_release_tracker_excel
+from ..core.pdf_waivers import generate_waiver_pdf
 from ..schemas.pay_apps import GeneratedFile
 
 router = APIRouter(tags=["artifacts"])
+
+
+# ─── FERROCRETE'S OWN WAIVERS (WI-5) ──────────────────────────────────
+
+@router.get("/pay-apps/{pay_app_id}/waiver/{waiver_type}.pdf")
+def download_ferrocrete_waiver(
+    pay_app_id: UUID,
+    waiver_type: Literal["CP", "UP", "CF", "UF"],
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Generate and stream Ferrocrete's own CP/UP/CF/UF waiver for this pay app."""
+    try:
+        pdf_bytes, filename = generate_waiver_pdf(str(pay_app_id), waiver_type)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class MarkWaiverSent(BaseModel):
+    kind: Literal["cpcf", "upuf"]
+    sent: bool = True
+
+
+@router.post("/pay-apps/{pay_app_id}/mark-waiver-sent")
+def mark_waiver_sent(
+    pay_app_id: UUID,
+    body: MarkWaiverSent,
+    user: CurrentUser = Depends(require_role("admin", "accountant", "pe")),
+):
+    """Stamp (or clear) the date Ferrocrete's own CP/CF or UP/UF was sent."""
+    sb = get_service_client()
+    field = "cpcf_sent_at" if body.kind == "cpcf" else "upuf_sent_at"
+    value = date.today().isoformat() if body.sent else None
+    try:
+        res = (sb.table("pay_apps").update({field: value})
+               .eq("id", str(pay_app_id)).execute())
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"Waiver-sent unavailable — has migration 009 been applied? "
+            f"({type(e).__name__}: {e})",
+        )
+    if not res.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pay app not found")
+    audit.log(user.id, "pay_app", str(pay_app_id), "waiver_sent",
+              metadata={"kind": body.kind, "sent": body.sent})
+    return {field: value}
 
 
 # ─── PAY APP ARTIFACTS ────────────────────────────────────────────────

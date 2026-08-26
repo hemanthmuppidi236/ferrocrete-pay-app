@@ -111,6 +111,10 @@ class PayApp(BaseModel):
     retention_billed: bool = False
     retention_billed_amount: Decimal = Decimal("0")
 
+    # Ferrocrete's own waivers sent (WI-5)
+    cpcf_sent_at: Optional[date] = None
+    upuf_sent_at: Optional[date] = None
+
     excel_file_path: Optional[str] = None
     pdf_file_path: Optional[str] = None
     excel_generated_at: Optional[datetime] = None
