@@ -137,43 +137,12 @@ def create_release_tracker(
 
     tracker = res.data[0]
 
-    # Carry-forward lines from prior tracker
-    prior_res = (sb.table("release_trackers")
-                 .select("id, period")
-                 .eq("project_id", str(body.project_id))
-                 .lt("period", body.period)
-                 .order("period", desc=True)
-                 .limit(1).execute())
-    if prior_res.data:
-        prior_id = prior_res.data[0]["id"]
-        prior_lines = sb.table("release_lines").select("*").eq("release_tracker_id", prior_id).execute()
-        if prior_lines.data:
-            new_lines = []
-            for pl in prior_lines.data:
-                new_lines.append({
-                    "release_tracker_id": tracker["id"],
-                    "sub_id": pl["sub_id"],
-                    "billed_amount": "0",
-                    "check_amount": "0",
-                    "release_type": pl.get("release_type"),
-                    "exception": pl.get("exception"),
-                    "prev_month_status": None,    # not auto-tracked per user spec
-                })
-            sb.table("release_lines").insert(new_lines).execute()
-    else:
-        # No prior — seed with all active subs
-        subs_res = (sb.table("subs").select("id, default_release_type")
-                    .eq("project_id", str(body.project_id))
-                    .eq("active", True).execute())
-        if subs_res.data:
-            new_lines = [{
-                "release_tracker_id": tracker["id"],
-                "sub_id": s["id"],
-                "billed_amount": "0",
-                "check_amount": "0",
-                "release_type": s.get("default_release_type"),
-            } for s in subs_res.data]
-            sb.table("release_lines").insert(new_lines).execute()
+    # Seed lines = union of (prior tracker lines, zeroed) + (active subs not
+    # already carried). Shared with the pay-app auto-create path.
+    from ..core.release_carry_forward import build_seed_lines
+    new_lines = build_seed_lines(sb, str(body.project_id), tracker["id"], body.period)
+    if new_lines:
+        sb.table("release_lines").insert(new_lines).execute()
 
     # Always seed 5 empty unbilled entries (matches the layout's 5-row block)
     unb_seed = [{
@@ -223,13 +192,31 @@ def update_release_lines(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Release tracker not found")
 
     # Get current lines
-    cur_lines = sb.table("release_lines").select("id, sub_id").eq("release_tracker_id", str(tracker_id)).execute()
+    cur_lines = (sb.table("release_lines")
+                 .select("id, sub_id, billed_amount, check_amount")
+                 .eq("release_tracker_id", str(tracker_id)).execute())
     cur_by_sub = {ln["sub_id"]: ln["id"] for ln in cur_lines.data}
+    cur_by_id = {ln["id"]: ln for ln in cur_lines.data}
     incoming_sub_ids = {str(ln.sub_id) for ln in body.lines}
 
-    # Delete lines for subs no longer present
+    # Lines for subs no longer present are candidates for deletion. Only truly
+    # empty lines (zero amounts, no waivers) may be removed — deleting a line
+    # would cascade-delete its uploaded waivers, so protect those.
     to_delete = [cur_by_sub[s] for s in cur_by_sub if s not in incoming_sub_ids]
     if to_delete:
+        wv = (sb.table("waivers").select("release_line_id")
+              .in_("release_line_id", to_delete).execute())
+        lines_with_waivers = {w["release_line_id"] for w in (wv.data or [])}
+        for lid in to_delete:
+            ln = cur_by_id.get(lid, {})
+            has_amount = (Decimal(str(ln.get("billed_amount") or 0)) > 0
+                          or Decimal(str(ln.get("check_amount") or 0)) > 0)
+            if lid in lines_with_waivers or has_amount:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Cannot remove a sub that has waivers or nonzero amounts. "
+                    "Clear its billed/check amounts and remove its waivers first.",
+                )
         sb.table("release_lines").delete().in_("id", to_delete).execute()
 
     # Upsert each incoming line

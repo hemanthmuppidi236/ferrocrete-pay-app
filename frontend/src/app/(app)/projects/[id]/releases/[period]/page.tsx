@@ -38,6 +38,7 @@ export default function ReleaseTrackerDetailPage({
   const [invoiceOverridden, setInvoiceOverridden] = useState(false);
   const [buildertrendTotal, setBuildertrendTotal] = useState("");
   const [lessMisc, setLessMisc] = useState("");
+  const [addSubId, setAddSubId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +158,38 @@ export default function ReleaseTrackerDetailPage({
   const lessMiscNum = parseFloat(lessMisc || "0");
   // Buildertrend reconciliation: BT total - misc - sum of checks should ~= 0
   const btReconDiff = buildertrendNum - lessMiscNum - checkTotal;
+
+  // Active subs not yet on this tracker — the "Add sub" dropdown source.
+  const addableSubs = useMemo(() => {
+    const onTracker = new Set(lines.map((l) => l.sub_id));
+    return (subs ?? [])
+      .filter((s) => s.active && !onTracker.has(s.id))
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  }, [subs, lines]);
+
+  function addSubLine(subId: string) {
+    const sub = subById.get(subId);
+    if (!sub) return;
+    // Unsaved line: empty id signals "persist on Save before waivers can attach".
+    const newLine = {
+      id: "",
+      release_tracker_id: tracker?.id ?? "",
+      sub_id: sub.id,
+      sub_name: sub.name,
+      parent_sub_id: sub.parent_sub_id ?? null,
+      billed_amount: "0",
+      check_amount: "0",
+      release_type: sub.default_release_type ?? null,
+      exception: null,
+      prev_month_status: null,
+    } as unknown as ReleaseLine;
+    setLines((prev) => [...prev, newLine]);
+    setAddSubId("");
+  }
+
+  function removeLine(subId: string) {
+    setLines((prev) => prev.filter((l) => l.sub_id !== subId));
+  }
 
   function updateLine(subId: string, patch: Partial<ReleaseLine>) {
     setLines((prev) =>
@@ -455,6 +488,43 @@ export default function ReleaseTrackerDetailPage({
             </div>
           </div>
 
+          {canEdit && addableSubs.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <select
+                className="input"
+                value={addSubId}
+                onChange={(e) => setAddSubId(e.target.value)}
+                style={{ fontSize: 13, maxWidth: 280 }}
+              >
+                <option value="">Add sub to this tracker…</option>
+                {addableSubs.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn btn-accent"
+                disabled={!addSubId}
+                onClick={() => addSubId && addSubLine(addSubId)}
+              >
+                Add
+              </button>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Added subs persist when you Save.
+              </span>
+            </div>
+          )}
+
           {lines.length === 0 ? (
             <div
               style={{
@@ -493,13 +563,23 @@ export default function ReleaseTrackerDetailPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {orderedLines.map(({ line, depth }) => (
+                  {orderedLines.map(({ line, depth }) => {
+                    const hasWaivers = (["CP", "UP", "CF", "UF"] as const).some(
+                      (t) => waiverIndex.has(`${line.id}:${t}`)
+                    );
+                    const isEmpty =
+                      parseFloat(String(line.billed_amount) || "0") === 0 &&
+                      parseFloat(String(line.check_amount) || "0") === 0;
+                    const removable = canEdit && !hasWaivers && isEmpty;
+                    return (
                     <ReleaseLineRow
-                      key={line.id}
+                      key={line.id || line.sub_id}
                       line={line}
                       depth={depth}
                       waiverIndex={waiverIndex}
                       canEdit={canEdit}
+                      removable={removable}
+                      onRemove={() => removeLine(line.sub_id)}
                       onChange={(patch) => updateLine(line.sub_id, patch)}
                       onWaiverChanged={async () => {
                         try {
@@ -513,7 +593,8 @@ export default function ReleaseTrackerDetailPage({
                       }}
                       onError={(msg) => setError(msg)}
                     />
-                  ))}
+                    );
+                  })}
                   <tr>
                     <td style={totalLabelStyle}>Total</td>
                     <td style={totalValueStyle}>
@@ -686,6 +767,8 @@ function ReleaseLineRow({
   depth,
   waiverIndex,
   canEdit,
+  removable,
+  onRemove,
   onChange,
   onWaiverChanged,
   onError,
@@ -694,10 +777,13 @@ function ReleaseLineRow({
   depth: number;
   waiverIndex: Map<string, Waiver>;
   canEdit: boolean;
+  removable: boolean;
+  onRemove: () => void;
   onChange: (patch: Partial<ReleaseLine>) => void;
   onWaiverChanged: () => Promise<void> | void;
   onError: (msg: string) => void;
 }) {
+  const saved = Boolean(line.id);
   return (
     <tr style={{ borderBottom: "1px solid var(--border)" }}>
       <td
@@ -711,7 +797,41 @@ function ReleaseLineRow({
         {depth > 0 && (
           <span style={{ color: "var(--text-muted)", marginRight: 6 }}>↳</span>
         )}
+        {removable && (
+          <button
+            type="button"
+            onClick={onRemove}
+            title="Remove this sub from the tracker"
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--ferrocrete-red)",
+              cursor: "pointer",
+              padding: "0 6px 0 0",
+              fontSize: 13,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        )}
         {line.sub_name ?? "(unnamed sub)"}
+        {!saved && (
+          <span
+            style={{
+              marginLeft: 6,
+              fontFamily:
+                "IBM Plex Mono, 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace",
+              fontSize: 9,
+              letterSpacing: 0.5,
+              textTransform: "uppercase",
+              color: "var(--status-amber)",
+            }}
+            title="Save to persist this sub and enable waiver upload"
+          >
+            unsaved
+          </span>
+        )}
       </td>
       <td style={{ padding: "6px 8px", width: 130 }}>
         <input
@@ -785,13 +905,19 @@ function ReleaseLineRow({
         </select>
       </td>
       <td style={{ padding: "6px 8px" }}>
-        <WaiverCell
-          line={line}
-          waiverIndex={waiverIndex}
-          canEdit={canEdit}
-          onWaiverChanged={onWaiverChanged}
-          onError={onError}
-        />
+        {saved ? (
+          <WaiverCell
+            line={line}
+            waiverIndex={waiverIndex}
+            canEdit={canEdit}
+            onWaiverChanged={onWaiverChanged}
+            onError={onError}
+          />
+        ) : (
+          <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
+            Save to add waivers
+          </span>
+        )}
       </td>
     </tr>
   );
