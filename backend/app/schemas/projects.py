@@ -33,6 +33,8 @@ class ProjectBase(BaseModel):
     substantial_completion_at: Optional[date] = None
     notes: Optional[str] = None
     grace_days: int = 14   # bill/CP-CF follow-up window (WI-2)
+    billing_due_rule: Optional[str] = None   # Billing Summary col D default (WI-4)
+    billing_contact: Optional[str] = None    # Billing Summary col S default (WI-4)
 
 
 class ProjectCreate(ProjectBase):
@@ -55,6 +57,8 @@ class ProjectUpdate(BaseModel):
     substantial_completion_at: Optional[date] = None
     notes: Optional[str] = None
     grace_days: Optional[int] = None
+    billing_due_rule: Optional[str] = None
+    billing_contact: Optional[str] = None
 
 
 class Project(ProjectBase):

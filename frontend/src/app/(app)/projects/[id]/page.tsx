@@ -624,6 +624,8 @@ function ProjectEditPanel({
   );
   const [notes, setNotes] = useState(project.notes ?? "");
   const [graceDays, setGraceDays] = useState(String(project.grace_days ?? 14));
+  const [billingDueRule, setBillingDueRule] = useState(project.billing_due_rule ?? "");
+  const [billingContact, setBillingContact] = useState(project.billing_contact ?? "");
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -671,6 +673,8 @@ function ProjectEditPanel({
       if (Number.isFinite(graceNum) && graceNum !== (project.grace_days ?? 14)) {
         payload["grace_days"] = graceNum;
       }
+      setIfChanged("billing_due_rule", project.billing_due_rule ?? "", billingDueRule.trim() || null);
+      setIfChanged("billing_contact", project.billing_contact ?? "", billingContact.trim() || null);
 
       if (Object.keys(payload).length === 0) {
         onCancel();
@@ -783,6 +787,24 @@ function ProjectEditPanel({
             value={graceDays}
             onChange={(e) => setGraceDays(e.target.value)}
             placeholder="14"
+          />
+        </Field>
+        <Field label="Billing due date rule">
+          <input
+            type="text"
+            className="input"
+            value={billingDueRule}
+            onChange={(e) => setBillingDueRule(e.target.value)}
+            placeholder='"25th", "EOM", "Skip"'
+          />
+        </Field>
+        <Field label="Billing contact" span={2}>
+          <input
+            type="text"
+            className="input"
+            value={billingContact}
+            onChange={(e) => setBillingContact(e.target.value)}
+            placeholder="Email or 'Submitted through GCPay'"
           />
         </Field>
 

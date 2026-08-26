@@ -121,7 +121,8 @@ def test_rows_and_math(monkeypatch):
     p1 = rows["p1"]
     assert p1["billed_amount"] == Decimal("90000")
     assert p1["gross_billing"] == Decimal("100000")          # 90000 / (1 - 0.10)
-    assert p1["balance_to_finish"] == Decimal("730000")      # 1,000,000 − 300,000 + 30,000
+    assert p1["balance_to_finish"] == Decimal("700000")      # H = 1,000,000 − 300,000
+    assert p1["balance_with_retention"] == Decimal("730000") # I = 1,000,000 − 300,000 + 30,000
     assert p1["potential_net"] == Decimal("35000")           # 90000 − 50000 − 5000
     assert p1["cpcf_sent"] == "Yes"                          # CP waiver auto-flag
     assert p1["upuf_sent"] == ""

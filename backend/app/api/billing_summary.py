@@ -12,7 +12,9 @@ billing_summary_overrides (migration 004).
 """
 
 from decimal import Decimal
+from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from typing import Optional
 
 from ..core.auth import CurrentUser, get_current_user, require_role
@@ -20,7 +22,7 @@ from ..core.supabase_client import get_service_client
 from ..core import audit
 from ..core import billing_math as bm
 from ..schemas.billing import (
-    BillingSummaryResponse, BillingOverrideUpdate,
+    BillingSummaryResponse, BillingOverrideUpdate, QuickbooksUpdate,
 )
 
 router = APIRouter(prefix="/billing-summary", tags=["billing_summary"])
@@ -69,14 +71,24 @@ def get_billing_summary(
             "totals": {k: zero for k in
                        ["revised_contract", "total_completed", "retention",
                         "balance_to_finish", "gross_billing", "billed_amount",
-                        "potential_net"]},
+                        "potential_net", "rebar", "cmu"]},
             "accrued": {"net": zero, "billed": zero},
+            "footer": {"net_pct_of_billed": None, "quickbooks_total": None,
+                       "quickbooks_diff": None, "running_total_billed": zero},
         }
 
     # ─── Projects (non-deleted) ───
-    proj_rows = sb.table("projects").select(
-        "id, project_no, name, contract_value, retention_rate, gc_contact_email, status, deleted_at"
-    ).execute().data or []
+    try:
+        proj_rows = sb.table("projects").select(
+            "id, project_no, name, contract_value, retention_rate, gc_contact_email, "
+            "billing_due_rule, billing_contact, status, deleted_at"
+        ).execute().data or []
+    except Exception:
+        # Migration 007 not applied yet — fall back without the new columns.
+        proj_rows = sb.table("projects").select(
+            "id, project_no, name, contract_value, retention_rate, "
+            "gc_contact_email, status, deleted_at"
+        ).execute().data or []
     projects = {p["id"]: p for p in proj_rows if not p.get("deleted_at")}
 
     # Approved change-order totals (revised-contract fallback when no pay app)
@@ -172,14 +184,48 @@ def get_billing_summary(
             waiver_flags=waiver_flags_by_tracker.get(tracker["id"]) if tracker else {},
         ))
 
-    rows.sort(key=lambda r: (r["project_no"], r["project_name"]))
+    # Projects flagged "Skip" in Billing Due Date sort to the bottom.
+    rows.sort(key=lambda r: (bm.is_skip(r.get("billing_due_date")),
+                             r["project_no"], r["project_name"]))
+
+    totals = bm.summarize_totals(rows)
+
+    # ─── Footer reconciliation ───
+    qb_total = None
+    try:
+        meta = (sb.table("billing_period_meta").select("quickbooks_total")
+                .eq("period", period).limit(1).execute())
+        if meta.data and meta.data[0].get("quickbooks_total") is not None:
+            qb_total = bm.dec(meta.data[0]["quickbooks_total"])
+    except Exception:
+        pass  # migration 007 not applied — no Quickbooks total yet
+
+    billed_total = totals["billed_amount"]
+    net_total = totals["potential_net"]
+    net_pct = (net_total / billed_total) if billed_total else None
+    qb_diff = (qb_total - billed_total) if qb_total is not None else None
+
+    # Running total billed = Σ current_payment_due across the selected year,
+    # for periods up to and including this one.
+    year = period.split("-")[0]
+    running_billed = sum(
+        (bm.dec(r.get("current_payment_due")) for r in pay_apps_le
+         if (r.get("period") or "").split("-")[0] == year),
+        Decimal("0"),
+    )
 
     return {
         "period": period,
         "available_periods": available,
         "rows": rows,
-        "totals": bm.summarize_totals(rows),
+        "totals": totals,
         "accrued": {"net": accrued_net, "billed": accrued_billed},
+        "footer": {
+            "net_pct_of_billed": net_pct,
+            "quickbooks_total": qb_total,
+            "quickbooks_diff": qb_diff,
+            "running_total_billed": running_billed,
+        },
     }
 
 
@@ -218,3 +264,126 @@ def upsert_override(
     audit.log(user.id, "billing_summary_override", row.get("id", ""), "upserted",
               after=row, metadata={"project_id": str(body.project_id), "period": body.period})
     return row
+
+
+@router.patch("/quickbooks")
+def upsert_quickbooks(
+    body: QuickbooksUpdate,
+    user: CurrentUser = Depends(require_role("admin", "accountant", "pe")),
+):
+    """Set the per-period Quickbooks total for the footer reconciliation."""
+    sb = get_service_client()
+    payload = {"period": body.period,
+               "quickbooks_total": str(body.quickbooks_total)
+               if body.quickbooks_total is not None else None}
+    try:
+        existing = (sb.table("billing_period_meta").select("period")
+                    .eq("period", body.period).limit(1).execute())
+        if existing.data:
+            res = (sb.table("billing_period_meta")
+                   .update({"quickbooks_total": payload["quickbooks_total"]})
+                   .eq("period", body.period).execute())
+        else:
+            res = sb.table("billing_period_meta").insert(payload).execute()
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"Quickbooks total unavailable — has migration 007 been applied? "
+            f"({type(e).__name__}: {e})",
+        )
+    audit.log(user.id, "billing_period_meta", body.period, "quickbooks_set",
+              metadata={"period": body.period})
+    return res.data[0] if res.data else payload
+
+
+# Columns for the Excel export, in the reference-sheet order (18 columns).
+_EXPORT_COLS = [
+    ("Job", "job", "text"),
+    ("Billing Due Date", "billing_due_date", "text"),
+    ("Revised Contract", "revised_contract", "money"),
+    ("Total Complete and Stored to Date", "total_completed", "money"),
+    ("Retention", "retention", "money"),
+    ("Balance to Finish", "balance_to_finish", "money"),
+    ("Balance to Finish W/Ret", "balance_with_retention", "money"),
+    ("Gross Billing", "gross_billing", "money"),
+    ("Retention %", "retention_rate", "pct"),
+    ("Billed Amount", "billed_amount", "money"),
+    ("Potential Net", "potential_net", "money"),
+    ("BT", "bt_note", "text"),
+    ("Rebar", "rebar", "money"),
+    ("CMU", "cmu", "money"),
+    ("CP/CF Sent", "cpcf_sent", "text"),
+    ("UP/UF Sent", "upuf_sent", "text"),
+    ("Billing Contact", "billing_contact", "text"),
+    ("Payment/Billing Status", "payment_status", "text"),
+]
+_TOTALS_KEYS = {
+    "revised_contract", "total_completed", "retention", "balance_to_finish",
+    "gross_billing", "billed_amount", "potential_net", "rebar", "cmu",
+}
+
+
+@router.get("/export.xlsx")
+def export_billing_summary(
+    period: Optional[str] = Query(None),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Excel export of the summary, matching the reference sheet's columns."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    data = get_billing_summary(period=period, user=user)
+    period = data.get("period") or period or "summary"
+    rows = data.get("rows") or []
+    totals = data.get("totals") or {}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Billing Summary"
+
+    MONEY = "$#,##0.00"
+    PCT = "0%"
+    bold = Font(bold=True)
+
+    # Header
+    for c, (label, _key, _kind) in enumerate(_EXPORT_COLS, start=1):
+        cell = ws.cell(row=1, column=c, value=label)
+        cell.font = bold
+
+    # Data rows
+    r = 2
+    for row in rows:
+        for c, (_label, key, kind) in enumerate(_EXPORT_COLS, start=1):
+            val = row.get(key)
+            cell = ws.cell(row=r, column=c)
+            if kind in ("money", "pct") and val is not None:
+                cell.value = float(val)
+                cell.number_format = MONEY if kind == "money" else PCT
+            else:
+                cell.value = "" if val is None else val
+        r += 1
+
+    # Totals row (bold), summing E, F, G, H, J, L, M, O, P.
+    ws.cell(row=r, column=1, value="Total").font = bold
+    for c, (_label, key, kind) in enumerate(_EXPORT_COLS, start=1):
+        if key in _TOTALS_KEYS and totals.get(key) is not None:
+            cell = ws.cell(row=r, column=c, value=float(totals[key]))
+            cell.number_format = MONEY
+            cell.font = bold
+
+    # Column widths + freeze header
+    ws.column_dimensions["A"].width = 34
+    for c in range(2, len(_EXPORT_COLS) + 1):
+        ws.column_dimensions[get_column_letter(c)].width = 16
+    ws.freeze_panes = "A2"
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"Billing_Summary_{period}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

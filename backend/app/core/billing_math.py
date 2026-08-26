@@ -114,10 +114,11 @@ def assemble_row(
 
     completed = dec(pay_app.get("total_completed_to_date")) if pay_app else Decimal("0")
     retention = dec(pay_app.get("retention_held")) if pay_app else Decimal("0")
-    balance = revised - completed + retention           # H = E − F + G
-    billed = dec(pay_app.get("current_payment_due")) if pay_app else Decimal("0")  # K
-    rate = dec(project.get("retention_rate"))           # J
-    gross = gross_from_billed(billed, rate)             # I
+    balance = revised - completed                       # H = E − F
+    balance_ret = revised - completed + retention       # I = E − F + G
+    billed = dec(pay_app.get("current_payment_due")) if pay_app else Decimal("0")  # L
+    rate = dec(project.get("retention_rate"))           # K
+    gross = gross_from_billed(billed, rate)             # J
 
     # P / Q auto-suggest from received waivers of that class; override wins.
     auto_cpcf = "Yes" if waiver_flags.get("cp_cf") else ""
@@ -134,15 +135,17 @@ def assemble_row(
         "total_completed": completed,
         "retention": retention,
         "balance_to_finish": balance,
+        "balance_with_retention": balance_ret,
         "gross_billing": gross,
         "retention_rate": rate,
         "billed_amount": billed,
         "potential_net": net,
 
-        # Manual (auto default + override)
+        # Manual (auto default + override). Billing due date and contact default
+        # to the project-level settings; a per-period override still wins.
         "billing_due_date": _first_nonempty(
             override.get("billing_due_date"),
-            pay_app.get("due_date") if pay_app else None,
+            project.get("billing_due_rule"),
         ),
         "bt_note": _first_nonempty(override.get("bt_note")),
         "rebar": dec(override.get("rebar")) if override.get("rebar") not in (None, "") else None,
@@ -151,6 +154,7 @@ def assemble_row(
         "upuf_sent": _first_nonempty(override.get("upuf_sent"), auto_upuf),
         "billing_contact": _first_nonempty(
             override.get("billing_contact"),
+            project.get("billing_contact"),
             project.get("gc_contact_email"),
         ),
         "payment_status": _first_nonempty(
@@ -164,8 +168,13 @@ def assemble_row(
     }
 
 
+def is_skip(billing_due_date) -> bool:
+    """True when a row's Billing Due Date reads as 'skip' (sorts to the bottom)."""
+    return str(billing_due_date or "").strip().lower() == "skip"
+
+
 def summarize_totals(rows: list) -> dict:
-    """Column totals across the rows (E, F, G, H, I, K, L). Net skips None."""
+    """Column totals across the rows (E, F, G, H, J, L, M, O, P). Skips None."""
     def s(key):
         return sum((r[key] for r in rows if r.get(key) is not None), Decimal("0"))
 
@@ -177,4 +186,6 @@ def summarize_totals(rows: list) -> dict:
         "gross_billing": s("gross_billing"),
         "billed_amount": s("billed_amount"),
         "potential_net": s("potential_net"),
+        "rebar": s("rebar"),
+        "cmu": s("cmu"),
     }
