@@ -147,3 +147,26 @@ def test_totals_and_accrued(monkeypatch):
     assert acc["net"] == Decimal("115000")
     # billed across ALL pay apps ≤ 26-06: 100000 + 90000 + 50000
     assert acc["billed"] == Decimal("240000")
+
+
+def test_deleted_project_excluded_from_accrued(monkeypatch):
+    """Regression: soft-deleting a project must drop its pay-app/tracker rows
+    from the to-date aggregates, not just from the per-project table."""
+    data = _make_data()
+    # Soft-delete Beta (p2): its pay app pa2 (50000) and tracker t2 (net 30000)
+    # stay in the DB but must no longer count toward accrued/running totals.
+    for p in data["projects"]:
+        if p["id"] == "p2":
+            p["deleted_at"] = "2026-06-15T00:00:00Z"
+    monkeypatch.setattr(bs, "get_service_client", lambda: _Client(data))
+    res = bs.get_billing_summary(period="26-06", user=None)
+
+    # Only the surviving project shows up.
+    assert [r["project_id"] for r in res["rows"]] == ["p1"]
+
+    acc = res["accrued"]
+    # p2 dropped: net = 50000 (t1a) + 35000 (t1b); billed = 100000 + 90000.
+    assert acc["net"] == Decimal("85000")
+    assert acc["billed"] == Decimal("190000")
+    # running total billed for the year likewise excludes pa2.
+    assert res["footer"]["running_total_billed"] == Decimal("190000")

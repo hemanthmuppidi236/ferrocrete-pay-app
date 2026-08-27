@@ -112,6 +112,12 @@ def get_billing_summary(
             "id, project_id, period, due_date, status, revised_contract, "
             "total_completed_to_date, retention_held, current_payment_due"
         ).lte("period", period).execute().data or []
+    # Deleted projects are soft-deleted (projects.deleted_at); their pay-app and
+    # tracker rows stay in the DB. Drop them here so the to-date aggregates
+    # (accrued_billed / accrued_net / running_billed) match the per-project table,
+    # which already excludes deleted projects via `projects`.
+    active_pids = set(projects.keys())
+    pay_apps_le = [r for r in pay_apps_le if r.get("project_id") in active_pids]
     payapp_by_project = {r["project_id"]: r for r in pay_apps_le if r.get("period") == period}
     accrued_billed = sum((bm.dec(r.get("current_payment_due")) for r in pay_apps_le), Decimal("0"))
 
@@ -119,6 +125,7 @@ def get_billing_summary(
     trackers_le = sb.table("release_trackers").select(
         "id, project_id, period, invoice_amount"
     ).lte("period", period).execute().data or []
+    trackers_le = [t for t in trackers_le if t.get("project_id") in active_pids]
     tracker_ids = [t["id"] for t in trackers_le]
 
     # Check + unbilled sums per tracker (batched)
