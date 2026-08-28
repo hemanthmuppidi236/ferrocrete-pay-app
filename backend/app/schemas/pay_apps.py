@@ -2,7 +2,7 @@
 Pay app + billing schemas.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Literal, List
 from datetime import date, datetime
 from decimal import Decimal
@@ -43,11 +43,20 @@ PayAppStatusLiteral = Literal[
 
 
 class PayAppUpdate(BaseModel):
-    """Edit pay app metadata. Billings updated via separate endpoint."""
+    """Edit pay app *metadata* only. Billings update via a separate endpoint.
+
+    `status` and `paid_amount` are intentionally NOT editable here: status only
+    ever changes through the guarded workflow endpoints (submit-for-approval,
+    approve, reject, send-to-gc, ...), which enforce role + state-machine
+    checks, and paid_amount is set by /mark-paid. Allowing them on this generic
+    PATCH would let a non-admin (e.g. a `pe`) self-approve a pay app, bypassing
+    the admin-only approval flow. `extra="forbid"` makes any attempt to smuggle
+    those fields fail with a 422 instead of being silently ignored.
+    """
+    model_config = ConfigDict(extra="forbid")
+
     period_to: Optional[date] = None
     due_date: Optional[date] = None
-    status: Optional[PayAppStatusLiteral] = None
-    paid_amount: Optional[Decimal] = None
     notes: Optional[str] = None
     retention_billed: Optional[bool] = None
     retention_billed_amount: Optional[Decimal] = None
