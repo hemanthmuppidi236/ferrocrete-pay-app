@@ -17,10 +17,9 @@ from uuid import UUID
 
 from ..core.auth import CurrentUser, get_current_user, require_role
 from ..core.supabase_client import get_service_client
-from ..core.config import settings
 from ..core import audit
 from ..core import release_stage as rs
-from ..core import storage as storage_helpers
+from ..core import release_purge
 from ..schemas.releases import (
     ReleaseTracker, ReleaseTrackerDetail, ReleaseTrackerCreate, ReleaseTrackerUpdate,
     ReleaseTrackerLinesUpdate, ReleaseLine, ReleaseUnbilledEntry,
@@ -280,26 +279,7 @@ def delete_release_tracker(
     if not existing.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Release tracker not found")
 
-    # Best-effort storage cleanup before the DB cascade drops the waiver rows.
-    try:
-        lines = (sb.table("release_lines").select("id")
-                 .eq("release_tracker_id", str(tracker_id)).execute().data or [])
-        line_ids = [ln["id"] for ln in lines]
-        if line_ids:
-            waivers = (sb.table("waivers").select("file_path")
-                       .in_("release_line_id", line_ids).execute().data or [])
-            for w in waivers:
-                fp = w.get("file_path")
-                if fp:
-                    try:
-                        storage_helpers.delete_object(settings.bucket_waivers, fp)
-                    except Exception as e:
-                        print(f"[release_trackers] waiver file cleanup failed for "
-                              f"{fp}: {e}", flush=True)
-    except Exception as e:
-        print(f"[release_trackers] waiver storage cleanup skipped: {e}", flush=True)
-
-    sb.table("release_trackers").delete().eq("id", str(tracker_id)).execute()
+    release_purge.purge_tracker(sb, str(tracker_id))
     audit.log(user.id, "release_tracker", str(tracker_id), "deleted",
               before=existing.data[0])
     return None

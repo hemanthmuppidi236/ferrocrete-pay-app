@@ -16,6 +16,7 @@ from uuid import UUID
 from ..core.auth import CurrentUser, get_current_user, require_role
 from ..core.supabase_client import get_service_client
 from ..core import audit
+from ..core import release_purge
 from ..schemas.projects import Project, ProjectCreate, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -112,7 +113,13 @@ def delete_project(
     project_id: UUID,
     user: CurrentUser = Depends(require_role("admin")),
 ):
-    """Soft-delete (sets deleted_at). Hard delete is admin-only via SQL."""
+    """Soft-delete the project (sets deleted_at) and purge its release trackers.
+
+    The project itself is soft-deleted so its pay-app history stays auditable,
+    but release trackers are hard-deleted (they have no soft-delete column and
+    would otherwise linger on the Release Trackers list with no owning project).
+    Hard delete of the project row is admin-only via SQL.
+    """
     from datetime import datetime, timezone
     sb = get_service_client()
 
@@ -123,5 +130,16 @@ def delete_project(
     sb.table("projects").update({
         "deleted_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", str(project_id)).execute()
+
+    # Purge release trackers for this project (best-effort; non-fatal so the
+    # project delete still succeeds even if tracker cleanup hits an error).
+    try:
+        purged = release_purge.purge_project_trackers(sb, str(project_id))
+        if purged:
+            audit.log(user.id, "project", str(project_id), "trackers_purged",
+                      after={"trackers_purged": purged})
+    except Exception as e:
+        print(f"[projects] release tracker purge failed for {project_id}: {e}",
+              flush=True)
 
     audit.log(user.id, "project", str(project_id), "deleted", before=existing.data[0])
