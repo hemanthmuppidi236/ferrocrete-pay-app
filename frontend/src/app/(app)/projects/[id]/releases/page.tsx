@@ -29,6 +29,10 @@ export default function ProjectReleasesPage({
   const [subs, setSubs] = useState<Sub[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
+  const [showManualAdd, setShowManualAdd] = useState(false);
+  const [manualPeriod, setManualPeriod] = useState("");
+  const [manualInvoice, setManualInvoice] = useState("");
+  const [addingManual, setAddingManual] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +108,33 @@ export default function ProjectReleasesPage({
     } catch (e) {
       setError(formatApiError(e));
       setCreating(null);
+    }
+  }
+
+  // Back-enter a tracker for an arbitrary period (e.g. historical data with no
+  // pay app in the system). Subs + prior-period lines carry forward; amounts
+  // start at zero.
+  async function createForPeriod() {
+    if (!canEdit) return;
+    const period = manualPeriod.trim();
+    if (!/^\d{2}-\d{2}$/.test(period)) {
+      setError("Period must be in YY-MM format (e.g. 26-03).");
+      return;
+    }
+    setAddingManual(true);
+    try {
+      const body: {
+        project_id: string;
+        period: string;
+        invoice_amount?: string;
+      } = { project_id: id, period };
+      const inv = manualInvoice.trim();
+      if (inv !== "") body.invoice_amount = inv;
+      const tracker = await api.post<ReleaseTracker>("/release-trackers", body);
+      router.push(`/projects/${id}/releases/${tracker.period}`);
+    } catch (e) {
+      setError(formatApiError(e));
+      setAddingManual(false);
     }
   }
 
@@ -219,7 +250,96 @@ export default function ProjectReleasesPage({
 
         {/* Tracker list */}
         <div className="section-card glass">
-          <h2 className="section-title">All release trackers</h2>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              marginBottom: 12,
+            }}
+          >
+            <h2 className="section-title" style={{ marginBottom: 0 }}>
+              All release trackers
+            </h2>
+            {canEdit && (
+              <button
+                className="btn"
+                onClick={() => {
+                  setShowManualAdd((v) => !v);
+                  setManualPeriod("");
+                  setManualInvoice("");
+                }}
+              >
+                {showManualAdd ? "Cancel" : "＋ Add tracker for a period"}
+              </button>
+            )}
+          </div>
+
+          {showManualAdd && canEdit && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "flex-end",
+                gap: 12,
+                padding: 14,
+                marginBottom: 16,
+                background: "var(--accent-dim)",
+                borderRadius: "var(--radius)",
+                border: "1px solid var(--accent-border)",
+              }}
+            >
+              <div>
+                <label className="form-label">Period (YY-MM) *</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={manualPeriod}
+                  onChange={(e) => setManualPeriod(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !addingManual) createForPeriod();
+                  }}
+                  placeholder="e.g. 26-03"
+                  style={{ width: 120 }}
+                />
+              </div>
+              <div>
+                <label className="form-label">Invoice amount (optional)</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="input"
+                  value={manualInvoice}
+                  onChange={(e) => setManualInvoice(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !addingManual) createForPeriod();
+                  }}
+                  placeholder="0.00"
+                  style={{ width: 160 }}
+                />
+              </div>
+              <button
+                className="btn btn-accent"
+                onClick={createForPeriod}
+                disabled={addingManual}
+              >
+                {addingManual ? "Adding…" : "Add tracker"}
+              </button>
+              <div
+                className="form-help"
+                style={{
+                  flexBasis: "100%",
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                }}
+              >
+                For back-entering a historical period that has no pay app. Subs
+                and prior-period lines carry forward automatically; amounts start
+                at zero and can be edited on the tracker.
+              </div>
+            </div>
+          )}
 
           {trackers === null ? (
             <div style={{ color: "var(--text-muted)" }}>Loading…</div>
@@ -232,7 +352,9 @@ export default function ProjectReleasesPage({
               }}
             >
               No release trackers yet. They&apos;re auto-created when you make a
-              new pay app, or you can create one above for an existing pay app.
+              new pay app, you can create one above for an existing pay app, or
+              use &ldquo;Add tracker for a period&rdquo; to back-enter a past
+              period.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
