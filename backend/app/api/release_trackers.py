@@ -17,8 +17,10 @@ from uuid import UUID
 
 from ..core.auth import CurrentUser, get_current_user, require_role
 from ..core.supabase_client import get_service_client
+from ..core.config import settings
 from ..core import audit
 from ..core import release_stage as rs
+from ..core import storage as storage_helpers
 from ..schemas.releases import (
     ReleaseTracker, ReleaseTrackerDetail, ReleaseTrackerCreate, ReleaseTrackerUpdate,
     ReleaseTrackerLinesUpdate, ReleaseLine, ReleaseUnbilledEntry,
@@ -256,6 +258,51 @@ def create_release_tracker(
 
     audit.log(user.id, "release_tracker", tracker["id"], "created", after=tracker)
     return tracker
+
+
+@router.delete("/{tracker_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_release_tracker(
+    tracker_id: UUID,
+    user: CurrentUser = Depends(require_role("admin")),
+):
+    """Hard-delete a release tracker and everything under it.
+
+    Release trackers have no soft-delete column. Deleting the row lets Postgres
+    cascade-delete its release_lines, release_unbilled_entries, and waivers
+    (FKs are ON DELETE CASCADE). Waiver *files* live in storage and are NOT
+    covered by the DB cascade, so we remove them first (best-effort) to avoid
+    orphaning objects in the bucket. Admin-only, matching project delete.
+    """
+    sb = get_service_client()
+
+    existing = (sb.table("release_trackers").select("*")
+                .eq("id", str(tracker_id)).limit(1).execute())
+    if not existing.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Release tracker not found")
+
+    # Best-effort storage cleanup before the DB cascade drops the waiver rows.
+    try:
+        lines = (sb.table("release_lines").select("id")
+                 .eq("release_tracker_id", str(tracker_id)).execute().data or [])
+        line_ids = [ln["id"] for ln in lines]
+        if line_ids:
+            waivers = (sb.table("waivers").select("file_path")
+                       .in_("release_line_id", line_ids).execute().data or [])
+            for w in waivers:
+                fp = w.get("file_path")
+                if fp:
+                    try:
+                        storage_helpers.delete_object(settings.bucket_waivers, fp)
+                    except Exception as e:
+                        print(f"[release_trackers] waiver file cleanup failed for "
+                              f"{fp}: {e}", flush=True)
+    except Exception as e:
+        print(f"[release_trackers] waiver storage cleanup skipped: {e}", flush=True)
+
+    sb.table("release_trackers").delete().eq("id", str(tracker_id)).execute()
+    audit.log(user.id, "release_tracker", str(tracker_id), "deleted",
+              before=existing.data[0])
+    return None
 
 
 @router.patch("/{tracker_id}", response_model=ReleaseTracker)

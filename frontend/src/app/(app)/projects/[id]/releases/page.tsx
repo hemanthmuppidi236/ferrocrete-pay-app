@@ -33,6 +33,8 @@ export default function ProjectReleasesPage({
   const [manualPeriod, setManualPeriod] = useState("");
   const [manualInvoice, setManualInvoice] = useState("");
   const [addingManual, setAddingManual] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,21 @@ export default function ProjectReleasesPage({
     currentUser?.role === "admin" ||
     currentUser?.role === "accountant" ||
     currentUser?.role === "pe";
+  const isAdmin = currentUser?.role === "admin";
+
+  async function deleteTracker(t: ReleaseTracker) {
+    if (!isAdmin) return;
+    setDeletingId(t.id);
+    try {
+      await api.delete(`/release-trackers/${t.id}`);
+      setTrackers((prev) => (prev ?? []).filter((x) => x.id !== t.id));
+      setConfirmDeleteId(null);
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   if (error && !project) {
     return (
@@ -359,30 +376,80 @@ export default function ProjectReleasesPage({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {sortedTrackers.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/projects/${id}/releases/${t.period}`}
-                  className="pay-app-row"
-                >
-                  <div className="pay-app-row-left">
-                    <div className="pay-app-row-period">{t.period}</div>
-                    <div
-                      className="pay-app-row-app-no"
-                      style={{ color: t.overdue_count ? "var(--status-red)" : undefined }}
-                    >
-                      {trackerStageSummary(t)}
-                      {t.overdue_count ? ` · ${t.overdue_count} overdue` : ""}
+                <div key={t.id} className="pay-app-row" style={{ gap: 12 }}>
+                  <Link
+                    href={`/projects/${id}/releases/${t.period}`}
+                    style={{
+                      display: "flex",
+                      flex: "1 1 auto",
+                      minWidth: 0,
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 14,
+                      textDecoration: "none",
+                      color: "inherit",
+                    }}
+                  >
+                    <div className="pay-app-row-left">
+                      <div className="pay-app-row-period">{t.period}</div>
+                      <div
+                        className="pay-app-row-app-no"
+                        style={{ color: t.overdue_count ? "var(--status-red)" : undefined }}
+                      >
+                        {trackerStageSummary(t)}
+                        {t.overdue_count ? ` · ${t.overdue_count} overdue` : ""}
+                      </div>
                     </div>
-                  </div>
-                  <div className="pay-app-row-right">
-                    <div className="pay-app-row-amount">
-                      {t.invoice_amount
-                        ? fmtMoneyShort(t.invoice_amount)
-                        : "—"}
+                    <div className="pay-app-row-right">
+                      <div className="pay-app-row-amount">
+                        {t.invoice_amount
+                          ? fmtMoneyShort(t.invoice_amount)
+                          : "—"}
+                      </div>
+                      <WorkflowStatus tracker={t} />
                     </div>
-                    <WorkflowStatus tracker={t} />
-                  </div>
-                </Link>
+                  </Link>
+                  {isAdmin &&
+                    (confirmDeleteId === t.id ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <button
+                          onClick={() => deleteTracker(t)}
+                          disabled={deletingId === t.id}
+                          className="btn"
+                          style={{
+                            color: "#fff",
+                            background: "var(--ferrocrete-red)",
+                            borderColor: "var(--ferrocrete-red)",
+                          }}
+                        >
+                          {deletingId === t.id ? "Deleting…" : "Yes, delete"}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          disabled={deletingId === t.id}
+                          className="btn btn-ghost"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(t.id)}
+                        className="btn btn-ghost"
+                        style={{ color: "var(--ferrocrete-red)", flexShrink: 0 }}
+                        title="Permanently delete this release tracker (admin only)"
+                      >
+                        Delete
+                      </button>
+                    ))}
+                </div>
               ))}
             </div>
           )}
