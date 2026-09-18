@@ -161,5 +161,15 @@ def generate_waiver_pdf(pay_app_id: str, waiver_type: str):
     proj = sb.table("projects").select("*").eq("id", pay_app["project_id"]).limit(1).execute()
     project = proj.data[0] if proj.data else {}
 
+    # Amount of Check = G702 line 8. Recompute it from the live billings so it
+    # always matches the G703, even if the pay app's stored total is stale.
+    try:
+        from .pay_app_math import calculate_pay_app_totals
+        fresh = calculate_pay_app_totals(str(pay_app_id))
+        if fresh and fresh.get("current_payment_due") is not None:
+            pay_app["current_payment_due"] = fresh["current_payment_due"]
+    except Exception as e:
+        print(f"[pdf_waivers] recompute payment due failed (using stored): {e}", flush=True)
+
     ctx = wf.build_waiver(waiver_type, project=project, pay_app=pay_app)
     return render_waiver_pdf(ctx), ctx["filename"]

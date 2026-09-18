@@ -99,6 +99,16 @@ def generate_pay_app_excel(pay_app_id: str) -> bytes:
             period_to = date.fromisoformat(period_to)
         g703[CELL_PERIOD_TO] = period_to
 
+    # Correct cell formats inherited from the template so the project number is
+    # not rendered as a date and dates show as m/d/yyyy on both the G703 and 702.
+    g703[CELL_PROJECT_NAME].number_format = "@"     # text (was currency)
+    g703[CELL_PROJECT_NO].number_format = "@"       # text (was mm-dd-yy)
+    g703[CELL_APP_NO].number_format = "0"
+    g703[CELL_APP_DATE].number_format = "m/d/yyyy"
+    g703[CELL_PERIOD_TO].number_format = "m/d/yyyy"
+    for _coord, _fmt in (("G7", "@"), ("G9", "0"), ("G11", "m/d/yyyy"), ("G13", "m/d/yyyy")):
+        s702[_coord].number_format = _fmt
+
     # Populate the Prelim Sheet from THIS project. The 702 header and the CP/UP/
     # CF/UF tabs all reference these cells, so without this they show the
     # template's example project (712 Seagaze). Cell map matches the template.
