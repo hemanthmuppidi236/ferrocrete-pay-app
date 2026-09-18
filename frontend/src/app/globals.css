@@ -12,6 +12,7 @@
 
 /* ── LIGHT MODE TOKENS ───────────────────────────────────────── */
 :root {
+  color-scheme: light;
   --topbar:          #1e1e1c;
   --topbar-text:     #ede9e0;
   --topbar-muted:    #9a968a;
@@ -62,6 +63,7 @@
 
 /* ── DARK MODE TOKENS ────────────────────────────────────────── */
 [data-theme="dark"] {
+  color-scheme: dark;
   --topbar:          #050505;
   --topbar-text:     #f0ece0;
   --topbar-muted:    #a8a08e;
@@ -399,6 +401,13 @@ h1, h2, h3, h4, h5, h6 { color: var(--text-primary); }
   border-color: var(--accent);
 }
 .input::placeholder { color: var(--text-placeholder); }
+/* Native <select> dropdown: color-scheme (set on :root/[data-theme]) makes the
+   popup follow the theme; also set explicit option colors so the list is
+   readable in dark mode across browsers. */
+.input option, select option { background: var(--input-bg); color: var(--text-body); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+}
 
 /* ── Status pills ────────────────────────────────────────────── */
 .pill {
