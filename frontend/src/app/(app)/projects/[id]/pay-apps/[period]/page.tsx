@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, ApiError, formatApiError } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import type {
@@ -35,10 +36,50 @@ export default function PayAppDraftPage({
   params: { id: string; period: string };
 }) {
   const { id: projectId, period } = params;
+  const router = useRouter();
   const { user } = useCurrentUser();
   const role = user?.role ?? "viewer";
   const isAdmin = role === "admin";
   const canMoveWorkflow = role === "admin" || role === "accountant";
+
+  // Admin: correct the application number / period (bug fix for mis-imported files).
+  const [editNum, setEditNum] = useState(false);
+  const [newAppNo, setNewAppNo] = useState("");
+  const [newPeriod, setNewPeriod] = useState("");
+  const [renumBusy, setRenumBusy] = useState(false);
+
+  async function saveRenumber() {
+    if (!payApp) return;
+    const body: { app_no?: number; period?: string } = {};
+    const n = parseInt(newAppNo, 10);
+    if (Number.isFinite(n) && n !== payApp.app_no) body.app_no = n;
+    const p = newPeriod.trim();
+    if (p && p !== payApp.period) {
+      if (!/^\d{2}-\d{2}$/.test(p)) {
+        setError("Period must be YY-MM (e.g. 26-08).");
+        return;
+      }
+      body.period = p;
+    }
+    if (Object.keys(body).length === 0) {
+      setEditNum(false);
+      return;
+    }
+    setRenumBusy(true);
+    try {
+      const updated = await api.patch<PayApp>(`/pay-apps/${payApp.id}/renumber`, body);
+      setEditNum(false);
+      if (body.period) {
+        router.push(`/projects/${projectId}/pay-apps/${updated.period}`);
+      } else {
+        setPayApp((prev) => (prev ? { ...prev, ...updated } : prev));
+      }
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setRenumBusy(false);
+    }
+  }
 
   const [project, setProject] = useState<Project | null>(null);
   const [payApp, setPayApp] = useState<PayAppDetail | null>(null);
@@ -442,7 +483,57 @@ export default function PayAppDraftPage({
           <div className="page-eyebrow">
             Pay application {isReadOnly ? `· ${payApp.status}` : "· Draft"}{" "}
             · App no. {payApp.app_no} · Period {payApp.period}
+            {isAdmin && !editNum && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewAppNo(String(payApp.app_no));
+                  setNewPeriod(payApp.period);
+                  setEditNum(true);
+                }}
+                style={{
+                  marginLeft: 8, background: "none", border: "none",
+                  color: "var(--accent-text)", cursor: "pointer",
+                  font: "inherit", textDecoration: "underline",
+                }}
+              >
+                edit
+              </button>
+            )}
           </div>
+          {isAdmin && editNum && (
+            <div
+              style={{
+                display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                margin: "6px 0 10px",
+              }}
+            >
+              <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                App no.
+                <input
+                  type="number" min="1" className="input" value={newAppNo}
+                  onChange={(e) => setNewAppNo(e.target.value)}
+                  style={{ width: 70, marginLeft: 6, fontSize: 13 }}
+                />
+              </label>
+              <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Period
+                <input
+                  type="text" className="input" value={newPeriod} placeholder="YY-MM"
+                  onChange={(e) => setNewPeriod(e.target.value)}
+                  style={{ width: 90, marginLeft: 6, fontSize: 13 }}
+                />
+              </label>
+              <button className="btn btn-accent" onClick={saveRenumber} disabled={renumBusy}
+                style={{ fontSize: 12, padding: "4px 10px" }}>
+                {renumBusy ? "Saving…" : "Save"}
+              </button>
+              <button className="btn btn-ghost" onClick={() => setEditNum(false)} disabled={renumBusy}
+                style={{ fontSize: 12, padding: "4px 10px" }}>
+                Cancel
+              </button>
+            </div>
+          )}
           <h1 className="page-title">{project.name}</h1>
           <div className="page-meta">
             {project.address && <>{project.address} · </>}

@@ -99,6 +99,29 @@ def generate_pay_app_excel(pay_app_id: str) -> bytes:
             period_to = date.fromisoformat(period_to)
         g703[CELL_PERIOD_TO] = period_to
 
+    # Populate the Prelim Sheet from THIS project. The 702 header and the CP/UP/
+    # CF/UF tabs all reference these cells, so without this they show the
+    # template's example project (712 Seagaze). Cell map matches the template.
+    if "Prelim Sheet" in wb.sheetnames:
+        ps = wb["Prelim Sheet"]
+        ps["F9"] = project.get("owner_name") or ""     # Owner name
+        ps["F10"] = project.get("owner_address") or ""  # Owner address
+        ps["F11"] = ""
+        ps["F14"] = project.get("gc_company") or ""      # Customer (GC) name
+        ps["F15"] = project.get("gc_address") or ""       # GC address
+        ps["F16"] = ""
+        ps["F29"] = project["name"]                       # Project name (702 header)
+        ps["F30"] = project.get("address") or ""          # Job location
+        ps["F31"] = ""
+    # The GC billing email is hardcoded on 702!A9 in the template.
+    s702["A9"] = project.get("gc_contact_email") or ""
+    # Make Excel recompute the 702 formulas from the new G703 data on open, so
+    # no stale template values (Seagaze totals) are shown.
+    try:
+        wb.calculation.fullCalcOnLoad = True
+    except Exception:
+        pass
+
     # Retention rate on 702!C27
     s702[S702_RETENTION_RATE] = float(project["retention_rate"])
 
