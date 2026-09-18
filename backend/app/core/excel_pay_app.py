@@ -88,6 +88,15 @@ def generate_pay_app_excel(pay_app_id: str) -> bytes:
     g703 = wb[SHEET_G703]
     s702 = wb[SHEET_702]
 
+    # Clear the template's example SOV + change-order rows first, so leftover
+    # sample data (extra "Level 2/3", Overpours, Bond Fee, SCO #01, ...) never
+    # leaks into this project's request for payment. Only the data columns
+    # (A-F); the per-row total/retention formulas in G-J recompute from them.
+    for _r in (list(range(SOV_BODY_START, SOV_BODY_END + 1))
+               + list(range(CO_BODY_START, CO_BODY_END + 1))):
+        for _c in range(1, 7):
+            g703.cell(row=_r, column=_c).value = None
+
     # Header
     g703[CELL_PROJECT_NAME] = project["name"]
     g703[CELL_PROJECT_NO] = project["project_no"]
