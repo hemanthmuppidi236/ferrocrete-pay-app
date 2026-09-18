@@ -65,6 +65,14 @@ HEADER_INFO_LABELS = {
 # Sheet-702 retention rate location (Demo 1 template convention).
 S702_RETENTION_CELL = "C27"
 
+# Some field templates leave a large block of spare/hidden rows inside a
+# section — e.g. Melodia leaves ~19 empty rows between the first change order
+# and the rest. We must bridge those gaps rather than treating them as the end
+# of the table, so a run of blank rows alone never terminates a section; only a
+# totals row, the next section header, or the end of the sheet does. This is
+# purely a runaway guard for a sheet with no totals row at all.
+MAX_BLANK_GAP = 200
+
 
 def _safe_float(v) -> float:
     if v is None or v == "" or v == " ":
@@ -243,7 +251,7 @@ def _extract_sov_lines(ws, header_row: int) -> tuple[list, int]:
         # Skip totally-empty rows but count them
         if not desc and not item_no and sched == 0 and prev == 0 and this_p == 0 and stored == 0:
             blank_streak += 1
-            if blank_streak >= 8:
+            if blank_streak >= MAX_BLANK_GAP:
                 break    # likely past the data
             continue
         blank_streak = 0
@@ -313,7 +321,7 @@ def _extract_co_lines(ws, start_row: int) -> list:
 
         if not desc and not co_no and amount == 0 and prev == 0 and this_p == 0 and stored == 0:
             blank_streak += 1
-            if blank_streak >= 8:
+            if blank_streak >= MAX_BLANK_GAP:
                 break
             continue
         blank_streak = 0

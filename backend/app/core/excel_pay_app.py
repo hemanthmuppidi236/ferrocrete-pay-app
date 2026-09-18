@@ -88,12 +88,68 @@ def generate_pay_app_excel(pay_app_id: str) -> bytes:
     g703 = wb[SHEET_G703]
     s702 = wb[SHEET_702]
 
+    # The template is wired for exactly three change orders: 702!G23 sums
+    # G703!C74:C76, and GRAND TOTALS sits at row 78. When a project has more
+    # COs, widen the CO band (insert rows above the spacer/GRAND TOTALS) and
+    # repoint every dependent formula, so all COs — and correct totals — appear
+    # on the download instead of being silently dropped.
+    approved_cos = [co for co in co_res.data if co["status"] == "approved"]
+    n_cos = len(approved_cos)
+    co_capacity = CO_BODY_END - CO_BODY_START + 1
+    co_last = CO_BODY_END
+    gt_row = GRAND_TOTAL_ROW
+    if n_cos > co_capacity:
+        from copy import copy
+        extra = n_cos - co_capacity
+        # Insert blank rows just above the spacer row so new CO rows stay
+        # contiguous with 74-76. openpyxl does NOT rewrite formula references on
+        # shift, so GRAND TOTALS and the 702 cross-refs are rewritten below.
+        g703.insert_rows(GRAND_TOTAL_ROW - 1, extra)
+        co_last = CO_BODY_END + extra
+        gt_row = GRAND_TOTAL_ROW + extra
+        # Copy the appearance (borders, fonts, number formats, height) of an
+        # existing CO row onto each newly inserted row.
+        for r in range(CO_BODY_END + 1, co_last + 1):
+            for c in range(1, 11):
+                src = g703.cell(row=CO_BODY_END, column=c)
+                dst = g703.cell(row=r, column=c)
+                dst.font = copy(src.font)
+                dst.border = copy(src.border)
+                dst.fill = copy(src.fill)
+                dst.alignment = copy(src.alignment)
+                dst.number_format = src.number_format
+            if g703.row_dimensions[CO_BODY_END].height is not None:
+                g703.row_dimensions[r].height = g703.row_dimensions[CO_BODY_END].height
+        # Per-row formulas for the whole CO band (G total, H %, I balance,
+        # J retention at the project rate — matching the SOV rows).
+        for r in range(CO_BODY_START, co_last + 1):
+            g703.cell(row=r, column=7).value = f'=IF(D{r}+E{r}+F{r}=0,"",D{r}+E{r}+F{r})'
+            g703.cell(row=r, column=8).value = f'=IF(G{r}=0,"",IF(ISERR(G{r}/C{r}),"",G{r}/C{r}))'
+            g703.cell(row=r, column=9).value = f'=IF(C{r}-G{r}=0,"",C{r}-G{r})'
+            g703.cell(row=r, column=10).value = f"=G{r}*'702'!$C$27"
+        # Repoint GRAND TOTALS (now at gt_row) over the widened band.
+        g703.cell(row=gt_row, column=3).value = f'=IF(SUM(C13:C{co_last})=0,"",SUM(C13:C{co_last}))'
+        g703.cell(row=gt_row, column=4).value = f'=SUM(D13:D{co_last})'
+        g703.cell(row=gt_row, column=5).value = f'=IF(SUM(E13:E{co_last})=0,"",SUM(E13:E{co_last}))'
+        g703.cell(row=gt_row, column=6).value = f'=IF(SUM(F13:F{co_last})=0,"",SUM(F13:F{co_last}))'
+        g703.cell(row=gt_row, column=7).value = f'=IF(SUM(G13:G{co_last})=0,"",SUM(G13:G{co_last}))'
+        g703.cell(row=gt_row, column=8).value = f'=IF(G{gt_row}=0,"",IF(ISERR(G{gt_row}/C{gt_row}),"",G{gt_row}/C{gt_row}))'
+        g703.cell(row=gt_row, column=9).value = f'=IF(C{gt_row}-G{gt_row}=0,"",C{gt_row}-G{gt_row})'
+        g703.cell(row=gt_row, column=10).value = f'=SUM(J13:J{co_last})'
+        # Repoint the 702 sheet's cross-references (CO contract sum + grand totals).
+        s702["G23"].value = f"=SUM('G703'!C74:C{co_last})"
+        s702["G26"].value = f"='G703'!G{gt_row}"
+        s702["G27"].value = f"='G703'!J{gt_row}"
+        s702["G29"].value = f"=(1-C27)*'G703'!D{gt_row}"
+        # Keep the print area from clipping the moved GRAND TOTALS row.
+        g703.print_area = f"A1:J{gt_row}"
+
     # Clear the template's example SOV + change-order rows first, so leftover
     # sample data (extra "Level 2/3", Overpours, Bond Fee, SCO #01, ...) never
     # leaks into this project's request for payment. Only the data columns
     # (A-F); the per-row total/retention formulas in G-J recompute from them.
     for _r in (list(range(SOV_BODY_START, SOV_BODY_END + 1))
-               + list(range(CO_BODY_START, CO_BODY_END + 1))):
+               + list(range(CO_BODY_START, co_last + 1))):
         for _c in range(1, 7):
             g703.cell(row=_r, column=_c).value = None
 
@@ -162,12 +218,9 @@ def generate_pay_app_excel(pay_app_id: str) -> bytes:
             g703.cell(row=r, column=5, value=float(b.get("this_period_work") or 0))  # E
             g703.cell(row=r, column=6, value=float(b.get("materials_stored") or 0))  # F
 
-    # CO body — rows 74 to 76 (max 3 COs)
-    approved_cos = [co for co in co_res.data if co["status"] == "approved"]
-    if len(approved_cos) > (CO_BODY_END - CO_BODY_START + 1):
-        # Lump remainder; for now warn
-        pass
-    for i, co in enumerate(approved_cos[: CO_BODY_END - CO_BODY_START + 1]):
+    # CO body — rows 74 to co_last. approved_cos was computed above and the band
+    # widened if needed, so every change order is written (no silent truncation).
+    for i, co in enumerate(approved_cos):
         r = CO_BODY_START + i
         g703.cell(row=r, column=1, value=co.get("co_no"))
         g703.cell(row=r, column=2, value=co.get("description"))
