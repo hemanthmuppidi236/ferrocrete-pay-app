@@ -62,6 +62,17 @@ class PayAppUpdate(BaseModel):
     retention_billed_amount: Optional[Decimal] = None
 
 
+class PayAppRenumber(BaseModel):
+    """Admin-only: correct a pay app's application number and/or period.
+
+    Used when an imported file landed on the wrong period (the filename label
+    disagreed with the file's actual Period To date).
+    """
+    model_config = ConfigDict(extra="forbid")
+    app_no: Optional[int] = Field(None, ge=1)
+    period: Optional[str] = Field(None, pattern=r"^\d{2}-\d{2}$")
+
+
 class PayAppBillingsUpdate(BaseModel):
     """Replace the full set of billings for a pay app."""
     billings: List[BillingLine]

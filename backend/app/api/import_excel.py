@@ -554,17 +554,9 @@ async def import_pay_app_excel(
         import calendar
         import re
 
-        # Step 1: Derive `period` (YY-MM) — prefer filename, fall back to period_to.
-        period = None
-        if file.filename:
-            matches = re.findall(r"(\d{2})-(\d{2})", file.filename)
-            for yy, mm in reversed(matches):
-                if 1 <= int(mm) <= 12:
-                    period = f"{yy}-{mm}"
-                    break
-
-        # Step 2: Normalize period_to to a `date` object. We need this regardless
-        # of where `period` came from, since the DB column is NOT NULL.
+        # Step 1: Normalize the file's PERIOD TO date. This is the authoritative
+        # source for the period — the filename is only a label and is often wrong
+        # (e.g. "26-06 ... Draw 2608.xlsx" is actually period 26-08).
         pdate = None
         if period_to is not None:
             try:
@@ -583,13 +575,21 @@ async def import_pay_app_excel(
             except Exception as e:
                 print(f"[import] period_to parse failed (non-fatal): {e}", flush=True)
 
-        # If we got a date from period_to and didn't get period from filename,
-        # derive period from the date.
-        if not period and pdate:
+        # Step 2: Derive `period` (YY-MM) — prefer the file's PERIOD TO date, and
+        # only fall back to a YY-MM pattern in the filename when the file has no
+        # usable date.
+        period = None
+        if pdate:
             period = f"{pdate.year % 100:02d}-{pdate.month:02d}"
+        elif file.filename:
+            matches = re.findall(r"(\d{2})-(\d{2})", file.filename)
+            for yy, mm in reversed(matches):
+                if 1 <= int(mm) <= 12:
+                    period = f"{yy}-{mm}"
+                    break
 
-        # If we got period from filename but no usable period_to, derive period_to
-        # as the last day of that month (the AIA G702 convention).
+        # If we got period from the filename but no usable period_to, derive
+        # period_to as the last day of that month (the AIA G702 convention).
         if period and not pdate:
             try:
                 yy_s, mm_s = period.split("-")

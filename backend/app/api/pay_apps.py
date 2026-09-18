@@ -35,7 +35,7 @@ from ..core.pay_app_math import calculate_pay_app_totals, save_pay_app_totals
 from ..schemas.pay_apps import (
     PayApp, PayAppDetail, PayAppCreate, PayAppUpdate,
     PayAppBillingsUpdate, BillingLine,
-    PayAppRejectBody, PayAppMarkPaidBody,
+    PayAppRejectBody, PayAppMarkPaidBody, PayAppRenumber,
 )
 
 router = APIRouter(prefix="/pay-apps", tags=["pay_apps"])
@@ -477,6 +477,73 @@ def update_pay_app(
     res = sb.table("pay_apps").update(updates).eq("id", str(pay_app_id)).execute()
     audit.log(user.id, "pay_app", str(pay_app_id), "updated",
               before=existing.data[0], after=res.data[0])
+    return res.data[0]
+
+
+@router.patch("/{pay_app_id}/renumber", response_model=PayApp)
+def renumber_pay_app(
+    pay_app_id: UUID,
+    body: PayAppRenumber,
+    user: CurrentUser = Depends(require_role("admin")),
+):
+    """Admin-only: correct a pay app's application number and/or period (e.g.
+    when an import landed on the wrong period). Changing the period recomputes
+    period_to and, best-effort, relabels the linked release tracker."""
+    from datetime import date
+    import calendar
+
+    sb = get_service_client()
+    existing = sb.table("pay_apps").select("*").eq("id", str(pay_app_id)).limit(1).execute()
+    if not existing.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pay app not found")
+    pa = existing.data[0]
+
+    updates: dict = {}
+    if body.app_no is not None:
+        updates["app_no"] = body.app_no
+
+    new_period = None
+    if body.period is not None and body.period != pa["period"]:
+        new_period = body.period
+        # No other pay app may already occupy this project + period.
+        dup = (sb.table("pay_apps").select("id")
+               .eq("project_id", pa["project_id"]).eq("period", new_period)
+               .neq("id", str(pay_app_id)).limit(1).execute())
+        if dup.data:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A pay app for period {new_period} already exists on this project.",
+            )
+        yy, mm = new_period.split("-")
+        yr, mo = 2000 + int(yy), int(mm)
+        last_day = calendar.monthrange(yr, mo)[1]
+        updates["period"] = new_period
+        updates["period_to"] = date(yr, mo, last_day).isoformat()
+
+    if not updates:
+        return pa
+
+    res = sb.table("pay_apps").update(updates).eq("id", str(pay_app_id)).execute()
+
+    # Best-effort: keep the linked release tracker's period in sync.
+    if new_period:
+        try:
+            tr = (sb.table("release_trackers").select("id, conditional_through_date")
+                  .eq("pay_app_id", str(pay_app_id)).limit(1).execute())
+            if tr.data:
+                conflict = (sb.table("release_trackers").select("id")
+                            .eq("project_id", pa["project_id"]).eq("period", new_period)
+                            .neq("id", tr.data[0]["id"]).limit(1).execute())
+                if not conflict.data:
+                    sb.table("release_trackers").update({
+                        "period": new_period,
+                        "conditional_through_date": updates["period_to"],
+                    }).eq("id", tr.data[0]["id"]).execute()
+        except Exception as e:
+            print(f"[pay_apps] tracker re-period failed (non-fatal): {e}", flush=True)
+
+    audit.log(user.id, "pay_app", str(pay_app_id), "renumbered",
+              before=pa, after=res.data[0])
     return res.data[0]
 
 
